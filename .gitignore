@@ -36,3 +36,5 @@ results/
 yolov8n.pt
 yolov8s.pt
 yolo11s.pt
+shipcaps_remote/
+.rclone-mount.log
