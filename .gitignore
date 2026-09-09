@@ -1,0 +1,38 @@
+# virtual env / OS junk
+venv/
+.DS_Store
+__pycache__/
+*.pyc
+
+# raw footage / media (large, not code)
+*.mp4
+*.mov
+*.heic
+*.HEIC
+
+# datasets (images/labels - large, regenerable from footage + labeling scripts)
+yolo_dataset/
+yolo_dataset_v4/
+external_runs/
+calibration_frames/
+calibration_v2/
+calibrationLazerMeasurements/
+thumbnails/
+review_candidates/
+review_v3/
+review_hardmine_v1/
+teknedenTekneyeGörüntü/
+yeniTrain/
+zirazF3W
+zitZ23ZM
+
+# training run artifacts (checkpoints/plots/logs) - curated best.pt files live in weights/ instead
+runs/
+runs_boat_yolo/
+results/
+
+# packaged bundles sent to/from Colab, and pretrained base weights (re-downloadable)
+*.zip
+yolov8n.pt
+yolov8s.pt
+yolo11s.pt
