@@ -1,0 +1,13 @@
+'use strict';
+const assert = require('node:assert/strict');
+const {parseCSV, coverage, indexAtTime, escapeHTML} = require('../panel_data.js');
+const rows = parseCSV('inference_ms,frame,distance_smoothed_m,distance_raw_m,time_s\n10,0,3,3,0\n10,1,3,,0.2\n10,2,NaN,Infinity,0.6\n');
+assert.equal(rows.length, 3);
+assert.equal(rows[2].raw, null);
+assert.deepEqual(coverage(rows), {detected: 1, total: 3, pct: 33});
+assert.equal(indexAtTime(rows, 0.5, 2), 1);
+assert.equal(indexAtTime(rows, 20, 2), 2);
+assert.equal(indexAtTime([], 0, 0), -1);
+assert.throws(() => parseCSV('frame,confidence\n0,0.9'), /Unsupported/);
+assert.equal(escapeHTML('<img src="x">'), '&lt;img src=&quot;x&quot;&gt;');
+console.log('Panel data regression checks passed');

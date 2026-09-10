@@ -5,10 +5,10 @@ import pickle
 import cv2
 import numpy as np
 from ultralytics import YOLO
+from generate_yolo_labels import check_training_sources
 
-# (video_path, start_frame) - start_frame skips a prefix already labeled in yolo_dataset_v4
-# (e.g. renkliTekneTekne/renksizTekneTekne were partially pulled into train/val already;
-# only their genuinely-unlabeled tail is worth mining here).
+# (video_path, start_frame). Split by whole recording: an unlabeled tail of a
+# reserved test video is still test data and must not be mined for training.
 VIDEOS = [
     ('8.mp4', 0),
     ('testt.mp4', 0),
@@ -17,8 +17,6 @@ VIDEOS = [
     ('signal-2026-09-02-10-36-23-770.mp4', 0),
     ('signal-2026-09-02-10-36-32-768.mp4', 0),
     ('signal-2026-09-02-15-27-23-408.mp4', 0),
-    ('teknedenTekneyeGörüntü/renkliTekneTekne.mp4', 69),
-    ('teknedenTekneyeGörüntü/renksizTekneTekne.mp4', 224),
 ]
 
 WIDTH, HEIGHT = 640, 360
@@ -33,6 +31,7 @@ def main():
     parser.add_argument('--out', default='review_v3')
     args = parser.parse_args()
 
+    check_training_sources(video for video, _ in VIDEOS)
     os.makedirs(args.out, exist_ok=True)
     model = YOLO(args.weights)
 

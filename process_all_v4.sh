@@ -1,6 +1,6 @@
 #!/bin/bash
-cd /Users/armin/Desktop/depth-anything
-source venv/bin/activate
+cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1
+source venv/bin/activate || exit 1
 
 WEIGHTS="runs/detect/runs_boat_yolo/boat_v4_s/weights/best.pt"
 

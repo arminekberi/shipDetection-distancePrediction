@@ -9,6 +9,19 @@ import os
 # Each entry: (video_path, split, sample_every, is_negative)
 #   sample_every: label every Nth frame with annotate_manual.py --sample-every N
 #   is_negative: video confirmed to have no boat at all (labeled entirely as background)
+TEST_VIDEOS = {
+    'renkliTekneTekne.mp4',
+    'renksizTekneTekne.mp4',
+}
+
+
+def check_training_sources(videos):
+    """Block reserved test recordings, including their unlabeled tails."""
+    conflicts = sorted({str(v) for v in videos if os.path.basename(v) in TEST_VIDEOS})
+    if conflicts:
+        raise ValueError('Reserved test recordings cannot be mined into training: ' + ', '.join(conflicts))
+
+
 VIDEO_SPLITS = [
     # --- train ---
     ('signal-2026-09-02-10-36-28-854.mp4', 'train', 1, False),

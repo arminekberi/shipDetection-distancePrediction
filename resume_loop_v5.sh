@@ -1,11 +1,13 @@
 #!/bin/bash
-cd /Users/armin/Desktop/depth-anything
-source venv/bin/activate
+cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1
+source venv/bin/activate || exit 1
 
 WEIGHTS="runs/detect/runs_boat_yolo/boat_v4s_hsvaug/weights/last.pt"
 LOG="results/yolo_train_v5_hsvaug_log.txt"
 
-while true; do
+mkdir -p results
+MAX_RETRIES="${MAX_RETRIES:-3}"
+for ((attempt=1; attempt<=MAX_RETRIES; attempt++)); do
     if [ -f "$WEIGHTS" ]; then
         echo "=== resume_loop_v5: resuming from checkpoint $(date) ===" >> "$LOG"
         python -c "
@@ -22,6 +24,10 @@ results = model.train(resume=True)
     if [ $STATUS -eq 0 ]; then
         echo "=== resume_loop_v5: training finished normally, stopping loop ===" >> "$LOG"
         break
+    fi
+    if [ "$attempt" -eq "$MAX_RETRIES" ]; then
+        echo "Training failed after $MAX_RETRIES attempts; inspect $LOG" >&2
+        exit "$STATUS"
     fi
     sleep 5
 done
