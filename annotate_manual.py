@@ -2,6 +2,8 @@ import argparse
 import os
 
 import cv2
+from dataset_io import recording_tag, require_mounted_destination, save_annotation
+from label_video import decode_frames
 
 # Run this yourself in your own terminal (needs an interactive window - camera/GUI
 # permission doesn't work through the agent's sandboxed shell).
@@ -27,21 +29,11 @@ def already_labeled(out_dir, split, tag, idx):
 
 
 def save_positive(out_dir, split, tag, idx, frame, box_xywh):
-    x, y, w, h = box_xywh
-    cx = (x + w / 2) / WIDTH
-    cy = (y + h / 2) / HEIGHT
-    nw = w / WIDTH
-    nh = h / HEIGHT
-    stem = stem_for(tag, idx)
-    cv2.imwrite(os.path.join(out_dir, 'images', split, stem + '.jpg'), frame)
-    with open(os.path.join(out_dir, 'labels', split, stem + '.txt'), 'w') as f:
-        f.write(f'0 {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}\n')
+    save_annotation(out_dir, split, tag, idx, frame, box_xywh)
 
 
 def save_negative(out_dir, split, tag, idx, frame):
-    stem = stem_for(tag, idx)
-    cv2.imwrite(os.path.join(out_dir, 'images', split, stem + '.jpg'), frame)
-    open(os.path.join(out_dir, 'labels', split, stem + '.txt'), 'w').close()
+    save_annotation(out_dir, split, tag, idx, frame)
 
 
 def main():
@@ -53,27 +45,16 @@ def main():
     parser.add_argument('--tag', default=None, help='override the label prefix (default: derived from filename)')
     args = parser.parse_args()
 
-    tag = args.tag or os.path.splitext(os.path.basename(args.video))[0].replace(',', '_').replace(' ', '_')
+    tag = recording_tag(args.video, args.tag)
+    require_mounted_destination(args.out)
 
     for sub in ('images', 'labels'):
         os.makedirs(os.path.join(args.out, sub, args.split), exist_ok=True)
 
-    cap = cv2.VideoCapture(args.video)
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    frames = decode_frames(args.video, args.sample_every)
+    total = len(frames)
 
-    # decode all sampled frames into memory up front so 'b' (go back) is trivial and cheap
-    frames = {}
-    idx = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        if idx % args.sample_every == 0:
-            frames[idx] = cv2.resize(frame, (WIDTH, HEIGHT))
-        idx += 1
-    cap.release()
-
-    indices = sorted(frames.keys())
+    indices = [idx for idx in sorted(frames) if not already_labeled(args.out, args.split, tag, idx)]
     print(f'{args.video}: {len(indices)} frames to review (of {total} total, every {args.sample_every})')
 
     window = f'annotate: {tag} [{args.split}]'
@@ -83,9 +64,6 @@ def main():
     n_pos = n_neg = n_skip = 0
     while i < len(indices):
         idx = indices[i]
-        if already_labeled(args.out, args.split, tag, idx):
-            i += 1
-            continue
 
         frame = frames[idx].copy()
         overlay = frame.copy()

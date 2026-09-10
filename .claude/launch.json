@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "kontrol-paneli",
+      "name": "control-panel",
       "runtimeExecutable": "venv/bin/python",
       "runtimeArgs": ["panel_server.py"],
       "port": 8001

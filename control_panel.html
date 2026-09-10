@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tekne Mesafe Tespiti — Kontrol Paneli</title>
+<title>Boat Distance Estimation — Control Panel</title>
 <style>
   :root{
     --bg:#070b11;
@@ -330,10 +330,7 @@
     max-width:360px;
   }
   select:focus{outline:none;border-color:var(--accent-dim);}
-  /* Safari, disabled durumdaki "select" öğelerinin yazısını sistem varsayılanı soluk griyle çiziyor —
-     bizim koyu panel arka planımızda bu, kutunun tamamen boş görünmesine yol açıyor
-     (ör. tek takip yöntemi olduğu için devre dışı bırakılan "Takip" seçici). Metni her
-     zaman okunur tutmak için burada açıkça override ediyoruz. */
+
   select:disabled{
     opacity:0.85;
     color:var(--text);
@@ -399,66 +396,65 @@
 <div class="wrap">
 
   <header>
-    <h1><span class="dot"></span>Tekne Mesafe Tespiti — Kontrol Paneli</h1>
-    <p>results/by_recording/ altındaki işlenmiş kayıtları, üretildikleri gerçek parametrelerle birlikte görüntüleyin.</p>
+    <h1><span class="dot"></span>Boat Distance Estimation — Control Panel</h1>
+    <p>Review processed recordings and the parameters used to generate them.</p>
   </header>
 
   <div class="banner" id="banner">
-    <button onclick="document.getElementById('banner').style.display='none'">kapat</button>
-    Bu sayfa doğrudan dosya olarak açıldığı için (ya da sunucu çalışmadığı için) sonuç klasörünü ve
-    manifest.json'ı okuyamıyor. Terminalde proje klasöründe, sanal ortam aktifken şunu çalıştırın:
+    <button onclick="document.getElementById('banner').style.display='none'">close</button>
+    The recording manifest could not be loaded. Start the server from the project directory:
     <br><code>python panel_server.py</code>
-    <br>ve tarayıcıda <code>http://localhost:8000/kontrol_paneli.html</code> adresini açın.
+    <br>Then open <code>http://127.0.0.1:8001/kontrol_paneli.html</code> in your browser.
   </div>
 
   <div class="app-layout">
     <aside class="sidebar">
       <div class="sidebar-search">
-        <input type="text" id="filterInput" placeholder="Kayıt ara (isim, model, yöntem)...">
+        <input type="text" id="filterInput" placeholder="Search recordings (name, model, method)...">
       </div>
-      <h2>Ham Kayıtlar</h2>
+      <h2>Recordings</h2>
       <div class="rows" id="cards"></div>
-      <h2 style="margin-top:20px;">Kalibrasyon Kayıtları</h2>
+      <h2 style="margin-top:20px;">Calibration Recordings</h2>
       <div class="rows" id="calibCards"></div>
     </aside>
 
     <div class="main">
       <div class="panel">
-        <h2 id="playerTitle">Kayıt</h2>
+        <h2 id="playerTitle">Recording</h2>
 
         <div class="player-shell" id="playerShell">
           <video id="player" controls playsinline></video>
-          <div class="badge" id="modeBadge">HAM GÖRÜNTÜ</div>
+          <div class="badge" id="modeBadge">SOURCE VIDEO</div>
           <div class="badge right" id="resultBadge" style="display:none;">—</div>
         </div>
 
         <div class="controls-row">
-          <button class="ghost" id="toggleBtn" style="display:none;">İşlenmiş Görüntüye Geç</button>
+          <button class="ghost" id="toggleBtn" style="display:none;">Show Annotated Video</button>
         </div>
 
-        <div class="status-line" id="statusLine">Bir kayıt seçin.</div>
+        <div class="status-line" id="statusLine">Select a recording.</div>
 
         <div class="modelgrid" id="modelPanel">
           <div class="techpanel" id="detectionPanel">
-            <h3>Tespit Modeli</h3>
+            <h3>Detection Model</h3>
             <div class="trow">
-              <div class="tlabel">Sonuç varyantı</div>
+              <div class="tlabel">Result variant</div>
               <select id="variantPicker"></select>
             </div>
             <div id="variantInfoBody"></div>
           </div>
 
           <div class="techpanel" id="trackingPanel">
-            <h3>Takip (Tracking)</h3>
+            <h3>Tracking</h3>
             <div class="trow">
-              <div class="tlabel">Yöntem</div>
+              <div class="tlabel">Method</div>
               <select id="trackerPicker"></select>
             </div>
             <div id="trackerInfoBody"></div>
           </div>
 
           <div class="techpanel" id="depthPanel">
-            <h3>Derinlik (Depth)</h3>
+            <h3>Depth</h3>
             <div class="trow">
               <div class="tlabel">Model</div>
               <select id="depthPicker"></select>
@@ -469,35 +465,35 @@
 
         <div class="techgrid">
           <div class="techpanel" id="paramsLeft">
-            <h3>Tespit Parametreleri</h3>
+            <h3>Detection Parameters</h3>
             <div class="trow"><div class="tlabel">Model</div><div class="tval" id="tpModel">—</div></div>
-            <div class="trow"><div class="tlabel">Kamera</div><div class="tval" id="tpCamera">—</div></div>
-            <div class="trow"><div class="tlabel">Hedef seçim yöntemi</div><div class="tval" id="tpMethod">—</div></div>
-            <div class="trow" id="tpDetectionRow" style="display:none;"><div class="tlabel">Tespit oranı</div><div class="tval" id="tpDetection">—</div></div>
+            <div class="trow"><div class="tlabel">Camera</div><div class="tval" id="tpCamera">—</div></div>
+            <div class="trow"><div class="tlabel">Target selection</div><div class="tval" id="tpMethod">—</div></div>
+            <div class="trow" id="tpDetectionRow" style="display:none;"><div class="tlabel">Measurement coverage</div><div class="tval" id="tpDetection">—</div></div>
             <div class="tnote" id="tpNote" style="display:none;"></div>
           </div>
 
           <div class="techpanel" id="paramsRight">
-            <h3>Kalibrasyon &amp; Doğrulama</h3>
-            <div class="trow"><div class="tlabel">Durum</div><div class="tval" id="tpCalib">—</div></div>
-            <div class="trow" id="tpTruthRow" style="display:none;"><div class="tlabel">Gerçek mesafe</div><div class="tval accent" id="tpTruth">—</div></div>
-            <div class="trow" id="tpMeasuredRow" style="display:none;"><div class="tlabel">Ölçülen (ort.)</div><div class="tval" id="tpMeasured">—</div></div>
-            <div class="trow" id="tpStatsRow" style="display:none;"><div class="tlabel">İstatistik</div><div class="tval" id="tpStats">—</div></div>
+            <h3>Calibration &amp; Validation</h3>
+            <div class="trow"><div class="tlabel">Status</div><div class="tval" id="tpCalib">—</div></div>
+            <div class="trow" id="tpTruthRow" style="display:none;"><div class="tlabel">Reference distance</div><div class="tval accent" id="tpTruth">—</div></div>
+            <div class="trow" id="tpMeasuredRow" style="display:none;"><div class="tlabel">Measured (mean)</div><div class="tval" id="tpMeasured">—</div></div>
+            <div class="trow" id="tpStatsRow" style="display:none;"><div class="tlabel">Statistics</div><div class="tval" id="tpStats">—</div></div>
             <div class="twarn" id="tpWarn" style="display:none;"></div>
           </div>
         </div>
 
         <div class="hud" id="hud" style="display:none;">
           <div class="stat main">
-            <div class="label">Anlık Mesafe (yumuşatılmış)</div>
+            <div class="label">Current distance (smoothed)</div>
             <div class="value" id="valSmoothed">— <small>m</small></div>
           </div>
           <div class="stat">
-            <div class="label">Ham Ölçüm</div>
+            <div class="label">Unsmoothed distance</div>
             <div class="value" id="valRaw">— <small>m</small></div>
           </div>
           <div class="stat">
-            <div class="label">Model Süresi</div>
+            <div class="label">Inference time</div>
             <div class="value" id="valInfer">— <small>ms</small></div>
           </div>
         </div>
@@ -505,18 +501,13 @@
         <div class="chart-wrap" id="chartWrap" style="display:none;">
           <canvas id="chart" width="900" height="120"></canvas>
           <div class="legend">
-            <span><i style="background:var(--raw-line)"></i>ham mesafe</span>
-            <span><i style="background:var(--smooth-line)"></i>yumuşatılmış mesafe</span>
+            <span><i style="background:var(--raw-line)"></i>unsmoothed distance</span>
+            <span><i style="background:var(--smooth-line)"></i>smoothed distance</span>
           </div>
         </div>
 
         <div class="howto">
-          <b>Nasıl çalışır:</b> Soldaki listeden bir kayıt seçtiğinizde, o kaydın
-          <code>results/by_recording/</code> altındaki yetkili sonucu otomatik yüklenir. "İşlenmiş
-          Görüntüye Geç" ile kutu ve mesafe yazısı gömülü işlenmiş görüntü ile ham kayıt arasında geçiş
-          yapabilirsiniz. Video altındaki panellerdeki değerler bu sonucu üreten gerçek parametrelerdir
-          (model, kamera, hedef seçim yöntemi, kalibrasyon, doğrulama) — salt-okunurdur, buradan
-          değiştirilemez.
+          <b>How it works:</b> Select a recording and an available result variant. Switch between source and annotated video. Measurement coverage includes tracking and is not detector recall. Parameters describe the selected result when its metadata is available.
         </div>
       </div>
     </div>
@@ -524,14 +515,12 @@
 
 </div>
 
+<script src="panel_data.js"></script>
 <script>
 (function(){
   "use strict";
-
-  // Rigin ustundeki /root/shipcaps'e rclone NFS mount uzerinden bakiyoruz -
-  // islenmis (overlay'li) video/CSV ciktilari da BURADA yaziliyor, Mac'te degil.
-  // Boylece hicbir video Mac diskine inmiyor - ne ham kaynak ne de islenmis cikti.
-  const BY_RECORDING_DIR = "shipcaps_remote/_processed/";
+  const BY_RECORDING_DIR = new URLSearchParams(location.search).get('results') === 'local'
+    ? 'results/by_recording/' : 'shipcaps_remote/_processed/';
   const MANIFEST_PATH = BY_RECORDING_DIR + "manifest.json";
   const THUMBS_DIR = "thumbnails/";
 
@@ -576,31 +565,7 @@
   const depthPicker = document.getElementById('depthPicker');
   const depthInfoBody = document.getElementById('depthInfoBody');
 
-  // Kullanıcı isteğiyle: UI'da şimdilik sadece bu manifest klasörleri gösteriliyor,
-  // geri kalanı geçici olarak gizli. Geri almak için buraya klasör adı eklemek/çıkarmak yeterli.
-  // renkliTekneTekne/renksizTekneTekne backend tarafından manifest.json'a işlendiği için
-  // (2026-09-05) artık burada normal manifest kaydı olarak listeleniyor — elle eklenmiş
-  // yer tutucuya ihtiyaç kalmadı.
-  const VISIBLE_FOLDERS = ['8', 'test1', 'test2', 'testGercekRenkli', 'testGercekSiyahBeyaz', 'siyahBeyazTespit', 'renkliTekneTekne', 'renksizTekneTekne',
-    'shipcam0_20260909_121129', 'shipcam0_20260909_120335', 'shipcam0_20260909_120534', 'shipcam0_20260909_115820',
-    'shipcam0_20260904_113444', 'shipcam0_20260904_112149'];
-
-  // manifest.json'da henüz karşılığı olmayan ama results/ altında bulunan kayıtlar için
-  // elle eklenen yer tutucular (backend training sürecinin ürettiği ama henüz manifest'e
-  // işlemediği bir video gibi). Teknik parametreleri (kamera, hedef seçim yöntemi, kalibrasyon)
-  // bilinmediği için _noManifest=true ile işaretlenip "Tespit Parametreleri/Kalibrasyon" panelinde
-  // "manifest bekliyor" olarak gösterilir — hiçbir parametre uydurulmuyor. Şu an manifest'te
-  // karşılığı olmayan bir kayıt yok, bu yüzden liste boş; backend yeni bir video işleyip
-  // manifest'e eklemeden önce burada gösterilmesi istenirse buraya eklenir.
   const EXTRA_RECORDINGS = [];
-
-  // manifest.json'daki bazı kayıtların "source_video" alanı gerçek ham kamera görüntüsünü
-  // değil, başka bir kaydın işlenmiş çıktısının bir kopyasını gösteriyor olabilir — bu
-  // manifest'in kendi "note" alanında da belirtiliyor (biz manifest.json'a dokunmuyoruz,
-  // sadece burada oynatma kaynağını düzeltiyoruz). "siyahBeyazTespit" için
-  // results/siyahBeyazTespit.mp4, aslında signal-2026-09-02-15-27-23-408 kaydının işlenmiş
-  // çıktısıyla piksel piksel aynı — o yüzden "Ham Görüntü" gerçek ham videoyu göstersin diye
-  // burada yönlendiriyoruz.
   const RAW_SOURCE_OVERRIDES = {
     'siyahBeyazTespit': 'signal-2026-09-02-15-27-23-408.mp4'
   };
@@ -608,11 +573,6 @@
   function rawSourceFor(rec){
     return RAW_SOURCE_OVERRIDES[rec.folder] || rec.source_video;
   }
-
-  // panel_server.py, "python -m http.server" ile aynı şekilde dizin listelemesi sunuyor
-  // (bkz. panel_server.py'nin kendi açıklaması). Bu fonksiyon o listelemeyi okuyup
-  // <a href="..."> bağlantılarından gerçek dosya adlarını çıkarır — hiçbir dosya adı
-  // burada sabit kodlanmıyor, klasörde o an gerçekten ne varsa o okunuyor.
   async function listDir(path){
     try{
       const res = await fetch(path, {cache: 'no-store'});
@@ -628,109 +588,26 @@
       return [];
     }
   }
-
-  // Dosya adı kalıbı: <method>_<tracker>_<modelSuffix>.{csv,mp4} — örn. yolo_csrt_v3,
-  // yolo_kalman_v4s, manual_csrt_indoorsmall. Bu, run.py'nin kendi çıktı adlandırma
-  // biçimi (method: yolo/manual hedef seçimi, tracker: --tracker csrt/kalman parametresi).
-  // Eşleşmeyen (ör. "yolo_only_v4s", "yolo_only_v4s_conf035" gibi backend'in QA amaçlı
-  // ürettiği, tracker'sız dosyalar) null döner ve hiçbir yerde gösterilmez.
   function parseVariantBase(base){
     const m = base.match(/^(yolo|manual)_(csrt|kalman)_([a-z0-9]+)$/i);
     if (!m) return null;
     return { method: m[1].toLowerCase(), tracker: m[2].toLowerCase(), modelSuffix: m[3].toLowerCase() };
   }
-
-  // Bilinen YOLO eğitim koşularının gerçek, doğrulanmış verileri — manifest.json'dan değil
-  // doğrudan backend'in ürettiği eğitim çıktılarından okundu (salt-okunur, hiçbir şey
-  // değiştirilmedi):
-  //   v3  -> runs/detect/runs_boat_yolo/boat_v3-2/args.yaml  (model: yolov8n.pt), results.csv
-  //          (80/80 epoch tamamlanmış), yolo_dataset/labels/{train,val} dosya sayıları.
-  //   v4s -> runs/detect/runs_boat_yolo/boat_v4_s/args.yaml (model: yolov8s.pt üzerinden resume),
-  //          results.csv (bu panel güncellendiğinde 41/80 epoch — eğitim hâlâ sürüyor),
-  //          yolo_dataset_v4/labels/{train,val} dosya sayıları.
-  // v4s eğitimi backend'de aktif olarak devam ettiği için buradaki epoch sayısı ve
-  // precision/recall/mAP değerleri zamanla eskiyecektir — bu yüzden UI'da açıkça
-  // "hâlâ eğitiliyor / sayılar değişebilir" olarak işaretleniyor. precision/recall/mAP50/
-  // mAP50-95 değerleri ilgili results.csv'nin EN SON epoch satırından (metrics/precision(B),
-  // metrics/recall(B), metrics/mAP50(B), metrics/mAP50-95(B) kolonları) okundu — YOLO'nun
-  // kendi doğrulama (val) seti üzerindeki nesne tespiti başarımı, uydurulmuş bir sayı değil.
   const VARIANT_LABELS = {
-    v3: 'YOLOv8n (v3) ile işlenmiş',
-    v4s: 'YOLOv8s (v4s) ile işlenmiş',
-    v5s: 'YOLOv8s (v5s) ile işlenmiş',
-    v4sf: 'YOLOv8s (v4s, dondurulmuş backbone) ile işlenmiş'
+    v3: 'YOLOv8n (v3) result',
+    v4s: 'YOLOv8s (v4s) result',
+    v5s: 'YOLOv8s (v5s) result',
+    v4sf: 'YOLOv8s (v4s, frozen backbone) result'
   };
 
-  const VERSION_INFO = {
-    v3: {
-      model: 'YOLOv8n (nano)',
-      trainImages: 1090,
-      valImages: 159,
-      epochsDone: 80,
-      epochsTotal: 80,
-      inProgress: false,
-      precision: 0.98724,
-      recall: 0.98568,
-      map50: 0.99243,
-      map5095: 0.87007,
-      source: 'runs/detect/runs_boat_yolo/boat_v3-2/args.yaml + results.csv, yolo_dataset/labels/'
-    },
-    v4s: {
-      model: 'YOLOv8s (small)',
-      trainImages: 2736,
-      valImages: 1017,
-      epochsDone: 41,
-      epochsTotal: 80,
-      inProgress: true,
-      precision: 0.64797,
-      recall: 0.6091,
-      map50: 0.52368,
-      map5095: 0.12261,
-      source: 'runs/detect/runs_boat_yolo/boat_v4_s/args.yaml + results.csv, yolo_dataset_v4/labels/'
-    },
-    v5s: {
-      model: 'YOLOv8s (small, imgsz=960)',
-      trainImages: 2802,
-      valImages: 1241,
-      epochsDone: 48,
-      epochsTotal: 80,
-      inProgress: false,
-      precision: 0.64999,
-      recall: 0.59492,
-      map50: 0.56936,
-      map5095: 0.16641,
-      source: 'external Colab GPU training (2026-09-08, imgsz=960, freeze=null, patience=40, stopped early at epoch 48 i.e. best epoch 8 + patience), boat_v5_s/args.yaml + results.csv, yolo_dataset_v4/labels/'
-    },
-    v4sf: {
-      model: 'YOLOv8s (small, frozen backbone freeze=10)',
-      trainImages: 2802,
-      valImages: 1241,
-      epochsDone: 74,
-      epochsTotal: 80,
-      inProgress: false,
-      precision: 0.73843,
-      recall: 0.64209,
-      map50: 0.59299,
-      map5095: 0.18155,
-      source: 'backbone (yolov8s.pt layers 0-9, verified via YOLO().model layer dump) frozen so only neck+head train on our small dataset, testing whether the unfrozen boat_v4_s/boat_v5_s runs were overfitting; started on local Mac/MPS, resumed + finished on external Colab GPU (2026-09-08, freeze=10, imgsz=640, patience=25, best epoch 18, stopped at epoch 74), boat_v4s_frozen/args.yaml + results.csv, yolo_dataset_v4/labels/'
-    }
-  };
 
-  // run.py'nin kendi "--tracker" argümanının yardım metninden alınan, kısaltılmış açıklamalar
-  // (run.py: "csrt (appearance-based, default)" / "kalman (constant-velocity motion filter
-  // that gates every detection ... by physical plausibility ...)").
   const TRACKER_ORDER = ['csrt', 'kalman'];
-  const TRACKER_LABEL = { csrt: 'CSRT (görünüme dayalı)', kalman: 'Kalman (hareket modeline dayalı)' };
+  const TRACKER_LABEL = { csrt: 'CSRT (appearance)', kalman: 'Kalman (motion)' };
   const TRACKER_INFO = {
-    csrt: 'CSRT: hedefi görünüşüne (appearance) bakarak takip eder — run.py\'nin varsayılan yöntemi. Görünüşü hedefe benzeyen bir yansıma/parlamaya kilitlenip kayabilir.',
-    kalman: 'Kalman: sabit hızlı hareket modeliyle her tespiti (güçlü ya da zayıf) fiziksel olarak makul olup olmadığına göre süzer; hedef ancak art arda birkaç karede (--reacquire-frames) tespit kaybolduktan sonra yeni bir konuma "atlayabilir" — CSRT\'nin aksine yanlış bir görünüşe kilitlenmeyi engellemeyi hedefler.'
+    csrt: 'CSRT follows appearance between YOLO confirmations. Geometric gating and a confirmation timeout limit drift, but reflections can still confuse it.',
+    kalman: 'Kalman predicts constant-velocity motion and gates detections by position. A confident detection can start a new track after sustained loss.'
   };
 
-  // Bu proje şu ana kadar tek bir derinlik modeli kullandı — manifest.json'daki HER kayıt
-  // (istisnasız) bu model id'sini taşıyor, ve run.py'nin kendi --model varsayılanı da aynısı.
-  // Bu yüzden "Derinlik" seçici şimdilik gerçek/tek seçenek olarak bunu gösteriyor; başka bir
-  // derinlik modeliyle üretilmiş bir sonuç ortaya çıkarsa buraya yeni bir seçenek eklenecek.
-  const DEPTH_MODEL_ID = 'depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf';
 
   const VARIANT_SORT_ORDER = { v3: 1, v4s: 2, v5s: 3, v4sf: 4 };
   function optionSortKey(opt){
@@ -738,12 +615,6 @@
     if (opt.versionKey && VARIANT_SORT_ORDER[opt.versionKey] != null) return VARIANT_SORT_ORDER[opt.versionKey];
     return 9;
   }
-
-  // Bir kaydın results/by_recording/<folder>/ klasörünü gerçekten tarayıp hangi "tespit modeli"
-  // seçeneklerinin (manifest'in yetkili varsayılanı + varsa yolov8n/v3, yolov8s/v4s) mevcut
-  // olduğunu, HER birinin de hangi takip yöntemleriyle (csrt/kalman) işlenmiş halde bulunduğunu
-  // bulur. Hiçbir varyant veya kombinasyon uydurulmuyor — sadece diskte gerçekten var olan
-  // <base>.csv + <base>.mp4 çiftleri okunup gruplanıyor.
   async function resultVariantsFor(rec){
     const options = [];
     const byKey = new Map();
@@ -758,22 +629,15 @@
     }
 
     const seenBase = new Set();
-
-    // manifest.json'ın yetkili varsayılan sonucu (rec.output_video/output_csv). Adı bilinen
-    // bir YOLO sürümüne (v3/v4s) denk düşüyorsa, aşağıda dosya taramasıyla bulunan AYNI
-    // sürümün diğer takip yöntemi (csrt/kalman) varyantlarıyla TEK bir seçenekte birleştirilir
-    // — böylece örn. "YOLOv8s (v4s)" seçeneği hem manifest'in CSRT sonucunu hem de diskte
-    // bulunan bir Kalman sonucunu aynı Takip seçicisinde sunabilir. Bilinmeyen bir isimlendirmeyse
-    // (ör. "indoorsmall") ayrı, sürüm bilgisi olmayan bir "Varsayılan" seçeneği olarak kalır.
     if (rec.output_video && rec.output_csv){
       const base = rec.output_video.replace(/\.mp4$/i, '');
       const parsed = parseVariantBase(base);
-      const tracker = parsed ? parsed.tracker : 'csrt';
+      const tracker = parsed ? parsed.tracker : (rec.tracker || 'csrt');
       const isKnownVersion = parsed && ['v3', 'v4s', 'v5s', 'v4sf'].includes(parsed.modelSuffix);
       const key = isKnownVersion ? parsed.modelSuffix : 'manifest';
       const label = isKnownVersion
-        ? VARIANT_LABELS[parsed.modelSuffix] + ' — manifest varsayılanı'
-        : 'Varsayılan (manifest.json) — ' + shortModelName(rec.model);
+        ? VARIANT_LABELS[parsed.modelSuffix] + ' — manifest default'
+        : 'Default (manifest.json) — ' + shortModelName(rec.model);
       const opt = optionFor(key, label, isKnownVersion ? parsed.modelSuffix : null);
       opt.isDefault = true;
       opt.trackers[tracker] = { csv: rec.output_csv, mp4: rec.output_video, base };
@@ -788,10 +652,10 @@
       const csv = base + '.csv';
       if (!files.includes(csv)) return;
       const parsed = parseVariantBase(base);
-      if (!parsed) return; // ör. yolo_only_v4s* — tracker'sız QA çıktıları, gösterilmiyor
-      if (!['v3', 'v4s', 'v5s', 'v4sf'].includes(parsed.modelSuffix)) return; // sadece bilinen YOLO sürümleri
+      if (!parsed) return;
+
       seenBase.add(base);
-      const label = VARIANT_LABELS[parsed.modelSuffix];
+      const label = VARIANT_LABELS[parsed.modelSuffix] || `${parsed.method.toUpperCase()} (${parsed.modelSuffix})`;
       const opt = optionFor(parsed.modelSuffix, label, parsed.modelSuffix);
       opt.trackers[parsed.tracker] = { csv, mp4, base };
     });
@@ -801,119 +665,75 @@
   }
 
   function renderVariantInfo(opt){
-    const vi = opt.versionKey ? VERSION_INFO[opt.versionKey] : null;
-    if (!vi){
-      variantInfoBody.innerHTML = `<div class="tnote">Bu varyantın tespit yöntemi ve model bilgisi aşağıdaki "Tespit Parametreleri" panelinde zaten gösteriliyor. Eğitim örnek sayısı/sürüm bilgisi burada yalnızca boat_v3 (YOLOv8n) ve boat_v4_s (YOLOv8s) eğitim çıktılarıyla üretilen varyantlar için gösteriliyor.</div>`;
-      return;
-    }
-    const epochInfo = vi.inProgress
-      ? `${vi.epochsDone}/${vi.epochsTotal} epoch — eğitim şu anda hâlâ devam ediyor`
-      : `${vi.epochsDone}/${vi.epochsTotal} epoch (tamamlandı)`;
-    const pct = x => (x * 100).toFixed(1) + '%';
-    const metricQualifier = vi.inProgress ? ` (epoch ${vi.epochsDone} itibarıyla, henüz kesin değil)` : ' (final, doğrulama seti)';
-    variantInfoBody.innerHTML = `
-      <div class="trow"><div class="tlabel">Model</div><div class="tval accent">${vi.model}</div></div>
-      <div class="trow"><div class="tlabel">Eğitim örnek sayısı</div><div class="tval">${vi.trainImages} eğitim + ${vi.valImages} doğrulama görüntüsü</div></div>
-      <div class="trow"><div class="tlabel">Eğitim durumu</div><div class="tval${vi.inProgress ? ' inprogress' : ''}">${epochInfo}</div></div>
-      <div class="trow"><div class="tlabel">Precision / Recall</div><div class="tval${vi.inProgress ? ' inprogress' : ' accent'}">${pct(vi.precision)} / ${pct(vi.recall)}${metricQualifier}</div></div>
-      <div class="trow"><div class="tlabel">mAP50 / mAP50-95</div><div class="tval${vi.inProgress ? ' inprogress' : ''}">${pct(vi.map50)} / ${pct(vi.map5095)}</div></div>
-      <div class="tnote">Kaynak: ${vi.source}${vi.inProgress ? ' — bu model şu anda arka planda eğitilmeye devam ediyor; buradaki epoch sayısı ve precision/recall/mAP değerleri bu panel güncellendiğindeki anlık durumdur ve ilerleyen eğitimle birlikte değişecektir.' : ''}</div>
-    `;
+    variantInfoBody.textContent = 'Training metrics are not supplied for this result. Evaluate the exact checkpoint on a reviewed, independent test set; historical training scores do not establish accuracy on this recording.';
   }
-
-  // Seçili (tespit modeli, takip yöntemi) kombinasyonunun bu video için GERÇEKTEN ne kadar
-  // sürekli bir tespit sağladığını, o an yüklenmiş CSV satırlarından hesaplar (kaç karede
-  // gerçek bir mesafe okuması var / toplam kare) — manifest.json'daki "detection_rate" alanı
-  // sadece manifest'in kendi varsayılan sonucu için var; bu, HERHANGİ bir seçili varyant için
-  // aynı yöntemle burada anlık hesaplanıyor, hiçbir sayı uydurulmuyor.
-  function computeDetectionCoverage(rows){
-    if (!rows || !rows.length) return null;
-    const total = rows.length;
-    const detected = rows.filter(r => r.smoothed != null).length;
-    return { detected, total, pct: Math.round((detected / total) * 100) };
-  }
+  const computeDetectionCoverage = PanelData.coverage;
 
   function renderTrackerInfo(tracker, coverage){
-    const desc = TRACKER_INFO[tracker] || 'Bu takip yöntemi için açıklama yok.';
+    const desc = TRACKER_INFO[tracker] || 'No description is available for this tracker.';
     const coverageRow = coverage
-      ? `<div class="trow"><div class="tlabel">Bu videoda tespit oranı</div><div class="tval accent">${coverage.detected}/${coverage.total} kare (%${coverage.pct})</div></div>`
+      ? `<div class="trow"><div class="tlabel">Measurement coverage on this video</div><div class="tval accent">${coverage.detected}/${coverage.total} frames (${coverage.pct}%)</div></div>`
       : '';
     trackerInfoBody.innerHTML = `${coverageRow}<div class="tnote">${desc}</div>`;
   }
 
   function renderDepthInfo(){
-    depthInfoBody.innerHTML = `<div class="tnote">Bu proje şu ana kadar sadece bu tek derinlik modelini kullanıyor — manifest.json'daki tüm kayıtlar ve run.py'nin kendi --model varsayılanı bununla aynı. Başka bir derinlik modeliyle üretilmiş bir sonuç yayınlanınca burada seçenek olarak eklenecek.</div>`;
+    depthInfoBody.textContent = 'Depth is a model estimate. Calibration is specific to a model and camera setup; use independent distance measurements to validate it.';
   }
 
-  let recordings = [];   // manifest.json "recordings" listesi — her biri {folder, source_video, ..., kind, label}
+  let recordings = [];
   let activeIndex = -1;
-  let currentRows = [];  // aktif kaydın CSV satırları
-  let currentModelOptions = [];   // seçili kaydın keşfedilen "Tespit Modeli" seçenekleri (her biri kendi tracker'larıyla)
+  let currentRows = [];
+  let currentModelOptions = [];
   let activeModelKey = null;
   let activeTracker = null;
   let showingAnnotated = false;
-  let filterText = '';   // sidebar arama kutusu
-
-  // "depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf" -> "Indoor Small"
+  let filterText = '';
   function shortModelName(modelId){
-    if (!modelId) return 'bilinmiyor';
+    if (!modelId) return 'unknown';
     const m = modelId.match(/Metric-([A-Za-z]+)-([A-Za-z]+)-hf$/i);
     if (m) return `${m[1]} ${m[2]}`;
     return modelId.split('/').pop();
   }
 
   function cameraLabel(rig){
-    if (rig === 'laser_pool_camera') return 'Havuz / lazer kalibrasyon kamerası';
-    if (rig === 'fpv_boat_basin_camera') return 'Tekne FPV kamerası';
+    if (rig === 'laser_pool_camera') return 'Pool / laser calibration camera';
+    if (rig === 'fpv_boat_basin_camera') return 'Boat FPV camera';
     return rig || '—';
   }
-
-  // target_selection metnindeki tekniği satırda göstermek için kısa bir etikete indirger;
-  // panelin sol tarafında zaten tam metin gösteriliyor, burada sadece özet lazım.
   function methodTag(targetSelection){
-    if (!targetSelection) return 'bilinmiyor';
+    if (!targetSelection) return 'unknown';
     const t = targetSelection.toLowerCase();
-    if (t.startsWith('manual')) return 'Manuel seçim';
-    if (t.startsWith('automatic')) return 'Oto (YOLO+CSRT)';
-    if (t.startsWith('fixed default')) return 'Sabit kutu';
+    if (t.startsWith('manual')) return 'Manual selection';
+    if (t.startsWith('automatic')) return 'Automatic detection';
+    if (t.startsWith('fixed default')) return 'Fixed box';
     return targetSelection.length > 28 ? targetSelection.slice(0, 28) + '…' : targetSelection;
   }
 
   function sourceBaseName(rec){
     return rawSourceFor(rec).split('/').pop().replace(/\.mp4$/i, '');
   }
-
-  // Bazı klasör adları için manifest.json'a dokunmadan sadece görüntüleme amaçlı daha
-  // okunur bir başlık kullanılır (manifest.json'daki "folder" alanı değişmiyor).
   const LABEL_OVERRIDES = {
-    'renkliTekneTekne': 'Tekneden Tekneye — Renkli',
-    'renksizTekneTekne': 'Tekneden Tekneye — Renksiz'
+    'renkliTekneTekne': 'Boat-to-boat — Color',
+    'renksizTekneTekne': 'Boat-to-boat — Monochrome'
   };
-
-  // Kayıt için insan-okur bir başlık üretir: signal-* dosyaları için saat damgası,
-  // kalibrasyon/doğrulama noktaları için mesafe, diğerleri için klasör adı.
   function recordingLabel(rec, isCalib){
     if (LABEL_OVERRIDES[rec.folder]) return LABEL_OVERRIDES[rec.folder];
     const m = rec.folder.match(/(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})/);
-    if (m) return `Kayıt — ${m[4]}:${m[5]}:${m[6]}`;
+    if (m) return `Recording — ${m[4]}:${m[5]}:${m[6]}`;
     if (isCalib){
-      if (rec.known_true_distance_m != null) return `Kalibrasyon — ${rec.known_true_distance_m} m`;
-      if (rec.likely_true_distance_m != null) return `Doğrulama — ~${rec.likely_true_distance_m} m`;
+      if (rec.known_true_distance_m != null) return `Calibration — ${rec.known_true_distance_m} m`;
+      if (rec.likely_true_distance_m != null) return `Validation — ~${rec.likely_true_distance_m} m`;
     }
     return rec.folder.charAt(0).toUpperCase() + rec.folder.slice(1);
   }
 
   async function loadManifest(){
     const res = await fetch(MANIFEST_PATH, {cache: 'no-store'});
-    if (!res.ok) throw new Error('manifest.json okunamadı (' + res.status + ')');
+    if (!res.ok) throw new Error('Could not read manifest.json (' + res.status + ')');
     const data = await res.json();
     return data.recordings || [];
   }
-
-  // Bir kaydın "kalibrasyon/doğrulama noktası" mı yoksa "tekne kaydı" mı olduğuna,
-  // dosya adına değil manifest.json'daki gerçek/tahmini mesafe alanlarının varlığına
-  // bakarak karar veriyoruz — bu, klasör konumundan (ör. proje kökünde mi,
-  // calibrationLazerMeasurements/ altında mı) daha güvenilir bir ayrım.
   function buildRecordings(list){
     return list.map(rec => {
       const isCalib = rec.known_true_distance_m != null || rec.likely_true_distance_m != null;
@@ -939,14 +759,15 @@
   }
 
   function rowInnerHTML(rec){
-    const base = sourceBaseName(rec);
+    const base = encodeURIComponent(sourceBaseName(rec));
+    rec = {...rec, label: PanelData.escapeHTML(rec.label), model: PanelData.escapeHTML(rec.model), target_selection: PanelData.escapeHTML(rec.target_selection), detection_rate: PanelData.escapeHTML(rec.detection_rate)};
     const thumb = `<img src="${THUMBS_DIR}${base}.jpg" onerror="this.style.opacity=0.15" alt="">`;
     if (rec._noManifest){
       return `${thumb}
         <div class="row-main">
           <div class="row-name">${rec.label}</div>
-          <div class="row-sub"><span class="tag" style="background:rgba(226,185,59,.18);color:var(--warn);">manifest bekliyor</span></div>
-          <div class="row-meta">teknik parametreler henüz yayınlanmadı — "Tespit Modeli" panelinden varyantlar seçilebilir</div>
+          <div class="row-sub"><span class="tag" style="background:rgba(226,185,59,.18);color:var(--warn);">metadata pending</span></div>
+          <div class="row-meta">Parameters are pending; available result variants can still be reviewed.</div>
         </div>`;
     }
     const distMeta = rec.kind === 'calib'
@@ -957,7 +778,7 @@
       <div class="row-main">
         <div class="row-name">${rec.label}</div>
         <div class="row-sub">${shortModelName(rec.model)} <span class="tag">${methodTag(rec.target_selection)}</span></div>
-        <div class="row-meta">${distMeta} · <span class="${rec.calibrated ? 'ok' : ''}">${rec.calibrated ? 'kalibre' : 'ham'}</span></div>
+        <div class="row-meta">${distMeta} · <span class="${rec.calibrated ? 'ok' : ''}">${rec.calibrated ? 'calibrated' : 'uncalibrated'}</span></div>
       </div>`;
   }
 
@@ -978,18 +799,15 @@
     filterText = filterInput.value.trim().toLowerCase();
     renderCards();
   });
-
-  // Sol/sağ teknik panelleri bu kaydı üreten gerçek parametrelerle doldurur.
-  // rowsForMean verilirse (CSV yüklendiyse) ölçülen ortalama/hata da hesaplanır.
   function updateParamPanels(rec, rowsForMean){
     if (rec._noManifest){
-      tpModel.textContent = 'bilinmiyor';
+      tpModel.textContent = 'unknown';
       tpCamera.textContent = '—';
-      tpMethod.textContent = 'Backend tarafından henüz belirtilmedi';
+      tpMethod.textContent = 'Not provided by the processing pipeline';
       tpDetectionRow.style.display = 'none';
       tpNote.style.display = 'block';
-      tpNote.textContent = 'Bu video için results/by_recording/manifest.json\'da resmi bir taban çizgi (baseline) girdisi yok, bu yüzden kamera/kalibrasyon gibi parametreler burada gösterilemiyor. Yine de aşağıdaki "Tespit Modeli" panelinden bu kayıt için üretilmiş YOLOv8n/YOLOv8s sonuç varyantları seçilip incelenebilir.';
-      tpCalib.textContent = 'Bilinmiyor — manifest kaydı yok';
+      tpNote.textContent = 'No manifest metadata is available for this result.';
+      tpCalib.textContent = 'Unknown — no manifest entry';
       tpCalib.className = 'tval warn';
       tpTruthRow.style.display = 'none';
       tpMeasuredRow.style.display = 'none';
@@ -1015,10 +833,10 @@
     }
 
     if (rec.calibrated){
-      tpCalib.textContent = `Kalibre edilmiş (scale=${rec.calib_scale}, offset=${rec.calib_offset})`;
+      tpCalib.textContent = `Calibrated (scale=${rec.calib_scale}, offset=${rec.calib_offset})`;
       tpCalib.className = 'tval accent';
     }else{
-      tpCalib.textContent = 'Kalibre edilmemiş — ham model çıktısı';
+      tpCalib.textContent = 'Uncalibrated model estimate';
       tpCalib.className = 'tval warn';
     }
 
@@ -1026,14 +844,14 @@
     if (truth != null){
       tpTruthRow.style.display = 'block';
       tpTruth.textContent = (rec.known_true_distance_m == null ? '~' : '') + truth.toFixed(2) + ' m'
-        + (rec.known_true_distance_m == null ? ' (tahmini)' : '');
+        + (rec.known_true_distance_m == null ? ' (estimated)' : '');
 
       const vals = rowsForMean ? rowsForMean.map(r => r.smoothed).filter(v => v != null) : [];
       if (vals.length){
         const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
         const err = mean - truth;
         tpMeasuredRow.style.display = 'block';
-        tpMeasured.textContent = `${mean.toFixed(2)} m (hata ${err >= 0 ? '+' : ''}${err.toFixed(2)} m)`;
+        tpMeasured.textContent = `${mean.toFixed(2)} m (error ${err >= 0 ? '+' : ''}${err.toFixed(2)} m)`;
       }else{
         tpMeasuredRow.style.display = 'none';
       }
@@ -1057,19 +875,7 @@
     }
   }
 
-  function parseCSV(text){
-    const lines = text.trim().split(/\r?\n/);
-    lines.shift(); // header
-    return lines.map(l => {
-      const [frame, raw, smoothed, infer] = l.split(',');
-      return {
-        frame: Number(frame),
-        raw: raw === '' ? null : Number(raw),
-        smoothed: smoothed === '' ? null : Number(smoothed),
-        infer: infer === '' ? null : Number(infer)
-      };
-    });
-  }
+  const parseCSV = PanelData.parseCSV;
 
   function drawChart(rowsData){
     const w = chart.width, h = chart.height;
@@ -1077,7 +883,7 @@
     const vals = rowsData.filter(r => r.smoothed != null).map(r => r.smoothed)
       .concat(rowsData.filter(r => r.raw != null).map(r => r.raw));
     if (!vals.length) return;
-    const maxV = Math.max(...vals) * 1.1;
+    const maxV = Math.max(1, vals.reduce((max, v) => Math.max(max, v), 0)) * 1.1;
     const n = rowsData.length;
     ctx.lineWidth = 1.5;
     ctx.font = "10px 'JetBrains Mono', ui-monospace, monospace";
@@ -1090,7 +896,7 @@
       let started = false;
       rowsData.forEach((r, i) => {
         const val = r[key];
-        const x = (i / (n - 1)) * w;
+        const x = (i / Math.max(1, n - 1)) * w;
         if (val == null){ started = false; return; }
         const y = h - (val / maxV) * h;
         if (!started){ ctx.moveTo(x, y); started = true; }
@@ -1124,8 +930,7 @@
 
   function onTimeUpdate(){
     if (!currentRows.length) return;
-    const fps = currentFps();
-    const idx = Math.min(currentRows.length - 1, Math.max(0, Math.round(player.currentTime * fps)));
+    const idx = PanelData.indexAtTime(currentRows, player.currentTime, player.duration);
     const row = currentRows[idx];
     valSmoothed.innerHTML = (row.smoothed != null ? row.smoothed.toFixed(2) : '—') + ' <small>m</small>';
     valRaw.innerHTML = (row.raw != null ? row.raw.toFixed(2) : '—') + ' <small>m</small>';
@@ -1148,16 +953,16 @@
     renderCards();
 
     playerTitle.textContent = rec.label;
-    modeBadge.textContent = 'HAM GÖRÜNTÜ';
+    modeBadge.textContent = 'SOURCE VIDEO';
     resultBadge.style.display = 'inline-block';
-    resultBadge.textContent = rec._noManifest ? 'manifest bekliyor' : (methodTag(rec.target_selection) + ' · ' + shortModelName(rec.model));
+    resultBadge.textContent = rec._noManifest ? 'metadata pending' : (methodTag(rec.target_selection) + ' · ' + shortModelName(rec.model));
     resultBadge.className = 'badge right' + (rec._noManifest ? ' warn' : '');
 
     player.src = rawSourceFor(rec);
     player.load();
 
     toggleBtn.style.display = 'none';
-    toggleBtn.textContent = 'İşlenmiş Görüntüye Geç';
+    toggleBtn.textContent = 'Show Annotated Video';
 
     updateParamPanels(rec, null);
 
@@ -1169,37 +974,28 @@
     depthPicker.innerHTML = '';
     depthInfoBody.innerHTML = '';
 
-    statusLine.textContent = 'Sonuç varyantları taranıyor...';
+    statusLine.textContent = 'Discovering result variants...';
     statusLine.className = 'status-line';
 
     const options = await resultVariantsFor(rec);
-    // Kullanıcı seçimi bu arada değiştiyse eski isteğin sonucunu uygulamıyoruz.
     if (activeIndex !== i) return;
     currentModelOptions = options;
 
     if (!options.length){
       statusLine.textContent = rec._noManifest
-        ? 'Bu kayıt için henüz işlenmiş bir sonuç bulunamadı — sadece video oynatılıyor.'
-        : `${rec.label} için sonuç verisi yok.`;
+        ? 'No processed result was found for this recording; showing source video.'
+        : `${rec.label} has no result data.`;
       statusLine.className = 'status-line warn';
       return;
     }
 
     modelPanel.style.display = 'grid';
-    variantPicker.innerHTML = options.map(o => `<option value="${o.key}">${o.label}</option>`).join('');
-
-    // Derinlik: proje genelinde şu ana kadar tek gerçek seçenek (bkz. DEPTH_MODEL_ID tanımı).
-    depthPicker.innerHTML = `<option value="indoor">${shortModelName(DEPTH_MODEL_ID)}</option>`;
+    variantPicker.innerHTML = options.map(o => `<option value="${o.key}">${PanelData.escapeHTML(o.label)}</option>`).join('');
+    depthPicker.innerHTML = `<option value="indoor">${PanelData.escapeHTML(shortModelName(rec.model || 'Unknown'))}</option>`;
     renderDepthInfo();
-
-    // Varsayılan seçim: manifest.json'ın yetkili sonucu varsa o (hangi YOLO sürümüyle
-    // birleşmiş olursa olsun, bkz. resultVariantsFor), yoksa keşfedilen ilk seçenek.
     const defaultOpt = options.find(o => o.isDefault) || options[0];
     selectModelOption(defaultOpt.key);
   }
-
-  // "Tespit Modeli" seçimini değiştirir: o seçeneğin gerçekten mevcut olan takip
-  // yöntemlerini (csrt/kalman) "Takip" seçiciye doldurur ve varsayılan takip yöntemini yükler.
   function selectModelOption(modelKey){
     activeModelKey = modelKey;
     variantPicker.value = modelKey;
@@ -1213,18 +1009,12 @@
     const defaultTracker = trackers.includes('csrt') ? 'csrt' : trackers[0];
     selectTracker(defaultTracker);
   }
-
-  // "Takip" seçimini değiştirir: seçili tespit modeli + bu takip yöntemine ait gerçek
-  // video/CSV çiftini yükler.
   function selectTracker(tracker){
     activeTracker = tracker;
     trackerPicker.value = tracker;
     renderTrackerInfo(tracker);
     loadActiveVariant();
   }
-
-  // Aktif (tespit modeli, takip yöntemi) kombinasyonuna karşılık gelen gerçek video/CSV
-  // çiftini yükler; HUD+grafiği ve teknik parametre panellerini günceller.
   async function loadActiveVariant(){
     const rec = recordings[activeIndex];
     const opt = currentModelOptions.find(o => o.key === activeModelKey);
@@ -1238,21 +1028,29 @@
       hud.style.display = 'none';
       chartWrap.style.display = 'none';
       updateParamPanels(rec, null);
-      statusLine.textContent = `${rec.label} (${variantLabel}) için sayısal sonuç verisi yok, sadece video mevcut.`;
+      statusLine.textContent = `${rec.label} (${variantLabel}) has video but no measurement data.`;
       statusLine.className = 'status-line warn';
       return;
     }
 
-    statusLine.textContent = 'Sonuç verisi yükleniyor...';
+    currentRows = [];
+    hud.style.display = 'none';
+    chartWrap.style.display = 'none';
+    statusLine.textContent = 'Loading result data...';
     statusLine.className = 'status-line';
     const requestIndex = activeIndex, requestModelKey = activeModelKey, requestTracker = activeTracker;
     try{
       const csvPath = BY_RECORDING_DIR + rec.folder + '/' + variant.csv;
       const res = await fetch(csvPath, {cache: 'no-store'});
-      if (!res.ok) throw new Error('CSV okunamadı (' + res.status + ')');
+      if (!res.ok) throw new Error('Could not read CSV (' + res.status + ')');
       const text = await res.text();
       const parsedRows = parseCSV(text);
-      // Kayıt veya seçim bu arada değiştiyse eski isteğin sonucunu uygulamıyoruz.
+      let resultRecord = variant.mp4 === rec.output_video ? rec : {...rec, _noManifest: true, model: null};
+      const metaPath = BY_RECORDING_DIR + rec.folder + '/' + variant.base + '.meta.json';
+      try {
+        const metaResponse = await fetch(metaPath, {cache: 'no-store'});
+        if (metaResponse.ok) resultRecord = {...rec, ...(await metaResponse.json()), _noManifest: false};
+      } catch (_) { /* Legacy results may not have metadata. */ }
       if (activeIndex !== requestIndex || activeModelKey !== requestModelKey || activeTracker !== requestTracker) return;
       currentRows = parsedRows;
       if (parsedRows.length){
@@ -1263,31 +1061,25 @@
         hud.style.display = 'none';
         chartWrap.style.display = 'none';
       }
-      updateParamPanels(rec, parsedRows);
+      updateParamPanels(resultRecord, parsedRows);
+      depthPicker.innerHTML = `<option>${PanelData.escapeHTML(shortModelName(resultRecord.model || 'Unknown'))}</option>`;
       renderTrackerInfo(activeTracker, computeDetectionCoverage(parsedRows));
-      statusLine.textContent = `${rec.label} (${variantLabel}) için sonuç yüklendi.`;
+      statusLine.textContent = `${rec.label} (${variantLabel}) result loaded.`;
       statusLine.className = 'status-line ok';
     }catch(e){
       if (activeIndex !== requestIndex || activeModelKey !== requestModelKey || activeTracker !== requestTracker) return;
-      statusLine.textContent = 'Sonuç verisi okunamadı: ' + e.message;
+      statusLine.textContent = 'Could not read result data: ' + e.message;
       statusLine.className = 'status-line warn';
     }
   }
-
-  // Video oynatıcıyı o an aktif olan (tespit modeli, takip yöntemi) kombinasyonuna göre
-  // günceller. Tespit Modeli/Takip'ten bir seçim yapmanın BÜTÜN amacı o kombinasyonun
-  // işlenmiş sonucunu görmek olduğu için, kullanıcı o an ham görüntüyü izliyor olsa bile
-  // seçim yapıldığı anda oynatıcı doğrudan seçilen varyantın işlenmiş videosuna geçer —
-  // önce "Ham Görüntüye Dön"e basıp sonra tekrar "İşlenmiş Görüntüye Geç"e basmaya gerek yok.
   function showActiveVariant(){
     const rec = recordings[activeIndex];
     const opt = currentModelOptions.find(o => o.key === activeModelKey);
     const variant = opt ? opt.trackers[activeTracker] : null;
     if (!variant || !variant.mp4){
-      // Bu kombinasyonun oynatılabilir bir videosu yoksa ham görüntüde kal.
       showingAnnotated = false;
-      modeBadge.textContent = 'HAM GÖRÜNTÜ';
-      toggleBtn.textContent = 'İşlenmiş Görüntüye Geç';
+      modeBadge.textContent = 'SOURCE VIDEO';
+      toggleBtn.textContent = 'Show Annotated Video';
       player.src = rawSourceFor(rec);
       player.load();
       return;
@@ -1295,8 +1087,8 @@
     const t = showingAnnotated ? player.currentTime : 0;
     const wasPlaying = !player.paused;
     showingAnnotated = true;
-    modeBadge.textContent = 'İŞLENMİŞ GÖRÜNTÜ (KUTU + MESAFE)';
-    toggleBtn.textContent = 'Ham Görüntüye Dön';
+    modeBadge.textContent = 'ANNOTATED VIDEO (BOX + DISTANCE)';
+    toggleBtn.textContent = 'Show Source Video';
     player.src = BY_RECORDING_DIR + rec.folder + '/' + variant.mp4;
     player.load();
     player.addEventListener('loadedmetadata', function once(){
@@ -1329,8 +1121,8 @@
     const wasPlaying = !player.paused;
     showingAnnotated = !showingAnnotated;
     player.src = showingAnnotated ? (BY_RECORDING_DIR + rec.folder + '/' + variant.mp4) : rawSourceFor(rec);
-    modeBadge.textContent = showingAnnotated ? 'İŞLENMİŞ GÖRÜNTÜ (KUTU + MESAFE)' : 'HAM GÖRÜNTÜ';
-    toggleBtn.textContent = showingAnnotated ? 'Ham Görüntüye Dön' : 'İşlenmiş Görüntüye Geç';
+    modeBadge.textContent = showingAnnotated ? 'ANNOTATED VIDEO (BOX + DISTANCE)' : 'SOURCE VIDEO';
+    toggleBtn.textContent = showingAnnotated ? 'Show Source Video' : 'Show Annotated Video';
     player.load();
     player.addEventListener('loadedmetadata', function once(){
       player.currentTime = Math.min(t, player.duration || t);
@@ -1344,11 +1136,11 @@
   async function init(){
     try{
       const list = await loadManifest();
-      const manifestRecs = buildRecordings(list).filter(rec => VISIBLE_FOLDERS.includes(rec.folder));
+      const manifestRecs = buildRecordings(list);
       recordings = manifestRecs.concat(EXTRA_RECORDINGS.map(r => Object.assign({}, r)));
     }catch(e){
       banner.style.display = 'block';
-      statusLine.textContent = 'results/by_recording/manifest.json okunamadı — sunucunun (panel_server.py) çalıştığından emin olun.';
+      statusLine.textContent = 'Could not read the recording manifest. Check panel_server.py and the server recording mount.';
       statusLine.className = 'status-line warn';
       return;
     }
