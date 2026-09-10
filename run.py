@@ -510,7 +510,10 @@ def main():
 
     writer = None
     if args.output:
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        # avc1 (H.264), not mp4v (MPEG-4 Part 2): mp4v plays in VLC/ffmpeg but no
+        # browser will decode it, which made every --output video unplayable in
+        # kontrol_paneli.html even though the file itself was fine.
+        fourcc = cv2.VideoWriter_fourcc(*'avc1')
         writer = cv2.VideoWriter(args.output, fourcc, 15.0, (args.width * 2, args.height))
 
     log_file = open(args.log, 'w', newline='') if args.log else None

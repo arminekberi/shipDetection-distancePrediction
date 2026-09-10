@@ -22,12 +22,13 @@ import http.server
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import threading
 import time
 
-PORT = 8000
+PORT = 8001
 ROOT = os.path.dirname(os.path.abspath(__file__))
 RESULTS_DIR = os.path.join(ROOT, "results")
 RUN_PY = os.path.join(ROOT, "run.py")
@@ -131,11 +132,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         pass  # konsolu statik dosya isteklerinden dolayi doldurmasin
 
 
+class DualStackServer(http.server.ThreadingHTTPServer):
+    """IPv4 + IPv6 on one socket.
+
+    macOS resolves "localhost" to ::1 before 127.0.0.1, and a browser that gets
+    an instant refusal on ::1 often does not fall back to IPv4 - binding only
+    0.0.0.0 made the panel unreachable at http://localhost:PORT/ even though it
+    was reachable at http://127.0.0.1:PORT/ (same process, same port).
+    """
+    address_family = socket.AF_INET6
+
+    def server_bind(self):
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        super().server_bind()
+
+
 if __name__ == "__main__":
     if not os.path.isfile(RUN_PY):
         raise SystemExit(f"run.py bulunamadi: {RUN_PY}")
 
-    server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    server = DualStackServer(("::", PORT), Handler)
     print(f"Kontrol paneli sunucusu calisiyor: http://localhost:{PORT}/kontrol_paneli.html")
     print(f"Model calistirmak icin kullanilan python: {sys.executable}")
     print("Durdurmak icin Ctrl+C")

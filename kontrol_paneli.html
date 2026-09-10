@@ -528,7 +528,10 @@
 (function(){
   "use strict";
 
-  const BY_RECORDING_DIR = "results/by_recording/";
+  // Rigin ustundeki /root/shipcaps'e rclone NFS mount uzerinden bakiyoruz -
+  // islenmis (overlay'li) video/CSV ciktilari da BURADA yaziliyor, Mac'te degil.
+  // Boylece hicbir video Mac diskine inmiyor - ne ham kaynak ne de islenmis cikti.
+  const BY_RECORDING_DIR = "shipcaps_remote/_processed/";
   const MANIFEST_PATH = BY_RECORDING_DIR + "manifest.json";
   const THUMBS_DIR = "thumbnails/";
 
@@ -578,7 +581,9 @@
   // renkliTekneTekne/renksizTekneTekne backend tarafından manifest.json'a işlendiği için
   // (2026-09-05) artık burada normal manifest kaydı olarak listeleniyor — elle eklenmiş
   // yer tutucuya ihtiyaç kalmadı.
-  const VISIBLE_FOLDERS = ['8', 'test1', 'test2', 'testGercekRenkli', 'testGercekSiyahBeyaz', 'siyahBeyazTespit', 'renkliTekneTekne', 'renksizTekneTekne'];
+  const VISIBLE_FOLDERS = ['8', 'test1', 'test2', 'testGercekRenkli', 'testGercekSiyahBeyaz', 'siyahBeyazTespit', 'renkliTekneTekne', 'renksizTekneTekne',
+    'shipcam0_20260909_121129', 'shipcam0_20260909_120335', 'shipcam0_20260909_120534', 'shipcam0_20260909_115820',
+    'shipcam0_20260904_113444', 'shipcam0_20260904_112149'];
 
   // manifest.json'da henüz karşılığı olmayan ama results/ altında bulunan kayıtlar için
   // elle eklenen yer tutucular (backend training sürecinin ürettiği ama henüz manifest'e
