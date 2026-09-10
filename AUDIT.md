@@ -14,9 +14,10 @@ reports, a server source snapshot, and test logs. Media, deployed source dumps,
 private machine state and model binaries from this audit are not added to Git.
 `GLARE_REVIEW.md` describes the separate 25-frame color/glare experiment.
 
-This is a code/data audit, not a newly measured model accuracy result. The
-available dataset has no independent test split; we did not retrain a checkpoint
-or claim a measured improvement in precision/recall.
+The available dataset has no independent test split. A subsequent paired
+validation experiment is documented in `EVALUATION.md`; it measures the input
+resolution change using existing weights. No checkpoint was retrained, and the
+results do not establish independent field accuracy.
 
 ## Main findings
 

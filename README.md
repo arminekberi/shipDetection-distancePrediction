@@ -97,3 +97,6 @@ venv/bin/python -m pip check
 
 See [AUDIT.md](AUDIT.md) for findings, limits and the retraining sequence, and
 [GLARE_REVIEW.md](GLARE_REVIEW.md) for the server glare/color experiment.
+
+[EVALUATION.md](EVALUATION.md) records the paired before/after detector run and
+provides the reproducible `evaluate_inputs.py` command.
