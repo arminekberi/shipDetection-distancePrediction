@@ -12,7 +12,7 @@ __pycache__/
 
 # datasets (images/labels - large, regenerable from footage + labeling scripts)
 yolo_dataset/
-yolo_dataset_v4/
+yolo_dataset_v4*/
 external_runs/
 calibration_frames/
 calibration_v2/
