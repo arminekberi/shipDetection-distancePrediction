@@ -1,5 +1,8 @@
 import argparse
 import csv
+import json
+import math
+from pathlib import Path
 import threading
 import time
 
@@ -37,13 +40,17 @@ def distance_in_box(depth_m, box):
     y1, y2 = sorted((max(0, min(h, y1)), max(0, min(h, y2))))
     if x2 - x1 < 2 or y2 - y1 < 2:
         return None
-    return float(np.median(depth_m[y1:y2, x1:x2]))
+    values = depth_m[y1:y2, x1:x2]
+    values = values[np.isfinite(values) & (values > 0)]
+    return float(np.median(values)) if values.size else None
 
 
 def apply_clahe(frame_bgr, clip_limit=2.5, tile_grid=8):
-    """Contrast-limited adaptive histogram equalization on the L channel (perceptual
-    lightness) - boosts local contrast in dark/washed-out regions without blowing out
-    already-bright areas (glare), which a global equalization would do."""
+    """Experimental local contrast enhancement on the L channel.
+
+    This cannot recover clipped highlights and may amplify glare or change the
+    detector's input distribution. Keep disabled unless validated on held-out video.
+    """
     lab = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
     clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(tile_grid, tile_grid))
@@ -51,7 +58,8 @@ def apply_clahe(frame_bgr, clip_limit=2.5, tile_grid=8):
     return cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
 
 
-def tiled_detect(yolo_model, native_frame, grid, overlap_frac, conf, imgsz, augment, scale_to_wh):
+def tiled_detect(yolo_model, native_frame, grid, overlap_frac, conf, imgsz, augment, scale_to_wh,
+                 return_candidates=False):
     """Split the full-resolution frame into a grid of overlapping tiles, run YOLO on each
     tile independently (so a small/far boat occupies far more of the tile's pixels than it
     would in the full downscaled frame), then map the best hit back to the pipeline's
@@ -67,32 +75,51 @@ def tiled_detect(yolo_model, native_frame, grid, overlap_frac, conf, imgsz, augm
     """
     nh, nw = native_frame.shape[:2]
     rows, cols = grid
-    tile_h = int(nh / (rows - (rows - 1) * overlap_frac)) if rows > 1 else nh
-    tile_w = int(nw / (cols - (cols - 1) * overlap_frac)) if cols > 1 else nw
-    step_h = int(tile_h * (1 - overlap_frac)) if rows > 1 else 0
-    step_w = int(tile_w * (1 - overlap_frac)) if cols > 1 else 0
+    if not (1 <= rows <= nh and 1 <= cols <= nw and 0 <= overlap_frac < 1):
+        raise ValueError('tile grid must fit the image and overlap must be in [0, 1)')
+    tile_h = int(np.ceil(nh / (rows - (rows - 1) * overlap_frac)))
+    tile_w = int(np.ceil(nw / (cols - (cols - 1) * overlap_frac)))
 
     best_conf = -1.0
     best_box = None
+    candidates = []
     out_w, out_h = scale_to_wh
     for r in range(rows):
         for c in range(cols):
-            y0 = min(r * step_h, nh - tile_h) if rows > 1 else 0
-            x0 = min(c * step_w, nw - tile_w) if cols > 1 else 0
+            y0 = round(r * (nh - tile_h) / (rows - 1)) if rows > 1 else 0
+            x0 = round(c * (nw - tile_w) / (cols - 1)) if cols > 1 else 0
             tile = native_frame[y0:y0 + tile_h, x0:x0 + tile_w]
             res = yolo_model.predict(tile, conf=conf, imgsz=imgsz, verbose=False, augment=augment)[0]
             if len(res.boxes) == 0:
                 continue
-            best = max(res.boxes, key=lambda b: float(b.conf[0]))
-            c_val = float(best.conf[0])
-            if c_val > best_conf:
+            for best in res.boxes:
+                c_val = float(best.conf[0])
                 tx1, ty1, tx2, ty2 = best.xyxy[0].tolist()
                 # tile-local -> native -> working (WIDTH,HEIGHT) coordinates
                 nx1, ny1, nx2, ny2 = tx1 + x0, ty1 + y0, tx2 + x0, ty2 + y0
                 sx, sy = out_w / nw, out_h / nh
-                best_box = (nx1 * sx, ny1 * sy, nx2 * sx, ny2 * sy)
-                best_conf = c_val
+                mapped_box = (nx1 * sx, ny1 * sy, nx2 * sx, ny2 * sy)
+                candidates.append((mapped_box, c_val))
+                if c_val > best_conf:
+                    best_box, best_conf = mapped_box, c_val
+    if return_candidates:
+        return candidates
     return best_box, (best_conf if best_box is not None else None)
+
+
+def select_detection(candidates, center, max_jump_px):
+    """Gate all candidates before ranking, so a distant false hit cannot hide a boat."""
+    valid = []
+    for box, confidence in candidates:
+        x1, y1, x2, y2 = box
+        if not np.isfinite((*box, confidence)).all() or x2 - x1 < 2 or y2 - y1 < 2:
+            continue
+        if center is not None:
+            jump = np.hypot((x1 + x2) / 2 - center[0], (y1 + y2) / 2 - center[1])
+            if jump > max_jump_px:
+                continue
+        valid.append((box, confidence))
+    return max(valid, key=lambda item: item[1], default=(None, 0.0))
 
 
 class DepthWorker(threading.Thread):
@@ -111,7 +138,7 @@ class DepthWorker(threading.Thread):
 
         self._lock = threading.Lock()
         self._latest_frame = None
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
 
         self.depth_m = None
         self.depth_color = np.zeros((height, width, 3), dtype=np.uint8)
@@ -122,7 +149,12 @@ class DepthWorker(threading.Thread):
             self._latest_frame = frame_bgr
 
     def stop(self):
-        self._stop.set()
+        self._stop_event.set()
+
+    def snapshot(self):
+        # Drawing overlays must not mutate the image retained by the worker.
+        with self._lock:
+            return self.depth_m, self.depth_color.copy(), self.infer_ms
 
     def infer(self, frame):
         """Run the model on one frame and return (depth_m, depth_color, infer_ms). Usable directly
@@ -146,7 +178,7 @@ class DepthWorker(threading.Thread):
         return depth_m, depth_color, infer_ms
 
     def run(self):
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             with self._lock:
                 frame = self._latest_frame
                 self._latest_frame = None
@@ -154,7 +186,9 @@ class DepthWorker(threading.Thread):
                 time.sleep(0.005)
                 continue
 
-            self.depth_m, self.depth_color, self.infer_ms = self.infer(frame)
+            result = self.infer(frame)
+            with self._lock:
+                self.depth_m, self.depth_color, self.infer_ms = result
 
 
 class YoloCsrtTracker:
@@ -175,7 +209,7 @@ class YoloCsrtTracker:
 
     def __init__(self, yolo_model, conf_threshold=0.45, low_conf_threshold=0.15, width=640, height=360,
                  box_smoothing=0.35, max_jump_frac=0.40, yolo_imgsz=960, grace_frames=4,
-                 tile_grid=None, tile_overlap=0.2, augment=False, clahe=False):
+                 tile_grid=None, tile_overlap=0.2, augment=False, clahe=False, reacquire_frames=8):
         self.yolo_model = yolo_model
         self.conf_threshold = conf_threshold
         self.low_conf_threshold = low_conf_threshold
@@ -188,6 +222,9 @@ class YoloCsrtTracker:
         self.box_smoothing = box_smoothing
         self.smoothed_box = None  # (cx, cy, w, h) floats
         self.miss_count = 0
+        self.unconfirmed_count = 0
+        self.reacquire_frames = reacquire_frames
+        self._reacquiring = False
         self.tile_grid = tile_grid  # e.g. (2, 2); measured to compound well with augment (see tiled_detect docstring)
         self.tile_overlap = tile_overlap
         self.augment = augment
@@ -199,18 +236,25 @@ class YoloCsrtTracker:
         the working-resolution frame - either way, optionally through CLAHE and/or TTA."""
         if self.tile_grid is not None and native_frame is not None:
             source = apply_clahe(native_frame) if self.clahe else native_frame
-            box, conf = tiled_detect(self.yolo_model, source, self.tile_grid, self.tile_overlap,
+            candidates = tiled_detect(self.yolo_model, source, self.tile_grid, self.tile_overlap,
                                       self.low_conf_threshold, self.yolo_imgsz, self.augment,
-                                      (self.width, self.height))
-            return box, (conf or 0.0)
-
-        source = apply_clahe(frame) if self.clahe else frame
-        results = self.yolo_model(source, verbose=False, conf=self.low_conf_threshold,
+                                      (self.width, self.height), return_candidates=True)
+        else:
+            source = native_frame if native_frame is not None else frame
+            source = apply_clahe(source) if self.clahe else source
+            results = self.yolo_model(source, verbose=False, conf=self.low_conf_threshold,
                                    imgsz=self.yolo_imgsz, augment=self.augment)[0]
-        if len(results.boxes) == 0:
-            return None, 0.0
-        best = max(results.boxes, key=lambda b: float(b.conf[0]))
-        return best.xyxy[0].tolist(), float(best.conf[0])
+            scale = np.array([self.width / source.shape[1], self.height / source.shape[0]] * 2)
+            candidates = [((b.xyxy[0].cpu().numpy() if hasattr(b.xyxy[0], 'cpu') else b.xyxy[0]) * scale,
+                           float(b.conf[0])) for b in results.boxes]
+        center = self.smoothed_box[:2] if self.smoothed_box is not None else None
+        box, conf = select_detection(candidates, center, self.max_jump_px)
+        self._reacquiring = False
+        if box is None and self.unconfirmed_count >= self.reacquire_frames:
+            box, conf = select_detection(
+                [(b, c) for b, c in candidates if c >= self.conf_threshold], None, self.max_jump_px)
+            self._reacquiring = box is not None
+        return box, conf
 
     def _accept(self, raw_box):
         x, y, w, h = raw_box
@@ -249,27 +293,34 @@ class YoloCsrtTracker:
 
     def update(self, frame, native_frame=None):
         best_box, best_conf = self._detect_best(frame, native_frame)
+        if self._reacquiring:
+            self.smoothed_box = None
+            self.csrt = None
 
         # 1) a strong, trusted detection - always wins, re-anchors CSRT
         if best_box is not None and best_conf >= self.conf_threshold and self._reinit_from_box(frame, best_box):
             self.miss_count = 0
+            self.unconfirmed_count = 0
             return True, self._smoothed_xywh()
 
         # 2) no strong detection this frame - let CSRT carry on from its last anchor
-        if self.csrt is not None:
+        if self.csrt is not None and self.unconfirmed_count < self.reacquire_frames:
             ok, box = self.csrt.update(frame)
             if ok and self._accept(box):
                 self.miss_count = 0
+                self.unconfirmed_count += 1
                 return True, self._smoothed_xywh()
 
         # 3) CSRT also failed/unavailable - fall back to a weak YOLO detection as last resort
         if best_box is not None and best_conf >= self.low_conf_threshold and self._reinit_from_box(frame, best_box):
             self.miss_count = 0
+            self.unconfirmed_count = 0
             return True, self._smoothed_xywh()
 
         # 4) nothing found at all - coast on the last known box for a few frames rather than
         # instantly reporting "no detection" (the target likely didn't just vanish)
         self.miss_count += 1
+        self.unconfirmed_count += 1
         if self.smoothed_box is not None and self.miss_count <= self.grace_frames:
             return True, self._smoothed_xywh()
 
@@ -284,9 +335,8 @@ class YoloKalmanTracker:
     physically should be next (from its recent velocity) and only accepts a YOLO detection
     as real if it falls close to that prediction - a detection that jumps to a plausible-
     looking but physically distant spot (the classic glare-jump failure mode) is rejected
-    outright. Unlike YoloCsrtTracker's jump check (only applied to CSRT's own drift, while
-    strong YOLO detections could always hijack the track anywhere), this gate applies to
-    *every* detection, strong or weak. A detection is only allowed to ignore the gate and
+    outright. This gate applies to every detection, strong or weak, before ranking
+    candidates by confidence. A detection is only allowed to ignore the gate and
     reinitialize the track at a new location after `reacquire_frames` consecutive frames
     with no accepted detection - genuine re-acquisition after the target was actually lost,
     not fresh drift.
@@ -334,16 +384,25 @@ class YoloKalmanTracker:
         cy = min(max(cy, h / 2), self.height - h / 2)
         return (int(cx - w / 2), int(cy - h / 2), int(w), int(h))
 
-    def update(self, frame):
+    def update(self, frame, native_frame=None):
         pred = self.kf.predict()
-        pred_cx, pred_cy = float(pred[0]), float(pred[1])
+        pred_cx, pred_cy = float(pred[0, 0]), float(pred[1, 0])
 
-        results = self.yolo_model(frame, verbose=False, conf=self.low_conf_threshold, imgsz=self.yolo_imgsz)[0]
-        best = max(results.boxes, key=lambda b: float(b.conf[0])) if len(results.boxes) > 0 else None
-        best_conf = float(best.conf[0]) if best is not None else 0.0
+        source = native_frame if native_frame is not None else frame
+        results = self.yolo_model(source, verbose=False, conf=self.low_conf_threshold, imgsz=self.yolo_imgsz)[0]
+        scale = np.array([self.width / source.shape[1], self.height / source.shape[0]] * 2)
+        candidates = [((b.xyxy[0].cpu().numpy() if hasattr(b.xyxy[0], 'cpu') else b.xyxy[0]) * scale,
+                       float(b.conf[0])) for b in results.boxes]
+        center = (pred_cx, pred_cy) if self.initialized else None
+        box, best_conf = select_detection(candidates, center, self.max_jump_px)
+        reacquiring = False
+        if box is None and self.initialized and self.unconfirmed_count >= self.reacquire_frames:
+            box, best_conf = select_detection(
+                [(b, c) for b, c in candidates if c >= self.conf_threshold], None, self.max_jump_px)
+            reacquiring = box is not None
 
-        if best is not None and best_conf >= self.low_conf_threshold:
-            x1, y1, x2, y2 = best.xyxy[0].tolist()
+        if box is not None and best_conf >= self.low_conf_threshold:
+            x1, y1, x2, y2 = box
             cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
             w, h = x2 - x1, y2 - y1
 
@@ -358,15 +417,17 @@ class YoloKalmanTracker:
                     accepted = True  # sustained loss + a confident hit elsewhere - real reacquisition
 
             if accepted:
-                if not self.initialized:
+                if not self.initialized or reacquiring:
                     self.kf.statePost = np.array([[cx], [cy], [0], [0]], dtype=np.float32)
+                    self.kf.errorCovPost = np.eye(4, dtype=np.float32) * 100.0
+                    self.smoothed_wh = None
                     self.initialized = True
                 else:
                     self.kf.correct(np.array([[np.float32(cx)], [np.float32(cy)]]))
                 self._accept_size(w, h)
                 self.miss_count = 0
                 self.unconfirmed_count = 0
-                out_cx, out_cy = float(self.kf.statePost[0]), float(self.kf.statePost[1])
+                out_cx, out_cy = float(self.kf.statePost[0, 0]), float(self.kf.statePost[1, 0])
                 return True, self._xywh(out_cx, out_cy)
 
         # no accepted detection this frame - coast on the Kalman prediction alone
@@ -378,11 +439,8 @@ class YoloKalmanTracker:
         return False, (0, 0, 0, 0)
 
 
-def select_target(cap, width, height):
+def select_target(frame, width, height):
     print('Draw a box around the object to track, then press ENTER/SPACE. Press ESC to track the center of the frame instead.')
-    ret, frame = cap.read()
-    if not ret:
-        raise RuntimeError('Could not read from camera to select a tracking target')
     frame = cv2.resize(frame, (width, height))
     x, y, w, h = cv2.selectROI('select object to track', frame, showCrosshair=True)
     cv2.destroyWindow('select object to track')
@@ -404,6 +462,8 @@ def parse_source(value):
 
 def parse_box(value, width, height):
     x1, y1, x2, y2 = (int(v) for v in value.split(','))
+    if not (0 <= x1 < x2 <= width and 0 <= y1 < y2 <= height and x2-x1 >= 2 and y2-y1 >= 2):
+        raise ValueError('target must be a nonempty box inside the working frame')
     return (x1, y1, x2, y2)
 
 
@@ -422,8 +482,8 @@ def main():
     parser.add_argument('--infer-size', type=int, default=392, help='resolution fed to the model (independent of camera/display resolution); lower = faster but coarser depth')
     parser.add_argument('--fp16', action='store_true', help='use half-precision inference for extra speed at some accuracy cost (off by default; full quality)')
     parser.add_argument('--smoothing', type=float, default=0.3, help='exponential-smoothing factor for the displayed distance, 0-1 (lower = smoother/slower to react, 1 = no smoothing)')
-    parser.add_argument('--calib-scale', type=float, default=0.9796, help='linear calibration: corrected = calib_scale * raw + calib_offset (see calibrate.py). Default fit for Indoor-Base against the 4 laser-measured points (3.7/5.0/6.6/9.0m, laser_pool_camera rig) - MAE=0.193m, RMSE=0.223m; re-fit if --model or the camera rig changes.')
-    parser.add_argument('--calib-offset', type=float, default=-2.2695, help='linear calibration offset, in meters (see --calib-scale)')
+    parser.add_argument('--calib-scale', type=float, default=1.0, help='linear calibration: corrected = calib_scale * raw + calib_offset (see calibrate.py). Default is identity. A historical Indoor-Base pool fit used scale=0.9796 and offset=-2.2695; do not apply it to another rig without independent validation.')
+    parser.add_argument('--calib-offset', type=float, default=0.0, help='linear calibration offset, in meters (see --calib-scale)')
     parser.add_argument('--no-display', action='store_true', help='headless mode: no preview window, no interactive target selection (use --target or the frame center)')
     parser.add_argument('--target', type=str, default=None, help='x1,y1,x2,y2 box (in --width/--height pixel coords) to track instead of clicking one interactively; required in --no-display unless you want the frame center')
     parser.add_argument('--output', type=str, default=None, help='path to save the annotated raw+depth video (mp4)')
@@ -438,117 +498,170 @@ def main():
     parser.add_argument('--max-jump-frac', type=float, default=0.40, help='YOLO mode only: reject a box whose center jumps more than this fraction of the shorter frame side in one frame (filters glare/false-positive teleports)')
     parser.add_argument('--grace-frames', type=int, default=4, help='YOLO mode only: keep coasting on the last known box for this many consecutive frames before declaring the target lost')
     parser.add_argument('--tracker', type=str, default='csrt', choices=['csrt', 'kalman'], help='YOLO mode only: "csrt" (appearance-based, default) or "kalman" (constant-velocity motion filter that gates every detection - strong or weak - by physical plausibility, only allowing a hijack to a new location after --reacquire-frames of sustained loss)')
-    parser.add_argument('--reacquire-frames', type=int, default=8, help='kalman tracker only: consecutive frames with no accepted detection before a confident detection is allowed to reinitialize the track at a new location')
+    parser.add_argument('--reacquire-frames', type=int, default=8, help='consecutive frames without a YOLO anchor before a confident detection can reinitialize the track elsewhere; also bounds CSRT-only propagation')
     parser.add_argument('--tile-grid', type=str, default=None, help='csrt tracker only: e.g. "2x2" - detect on overlapping tiles of the native-resolution frame instead of one shrunk frame (helps small/far objects; grid_size x more YOLO calls per frame). Measured on a poorly-generalizing clip: alone this raised detection coverage but lowered average confidence per hit - combine with --augment to recover confidence too (see tiled_detect docstring for the numbers)')
     parser.add_argument('--tile-overlap', type=float, default=0.2, help='fractional overlap between adjacent tiles, only with --tile-grid')
     parser.add_argument('--augment', action='store_true', help='csrt tracker only: YOLO test-time augmentation (multi-scale/flip ensembling) - no retraining, slower per detection call, raised both coverage and confidence in testing, especially combined with --tile-grid')
     parser.add_argument('--clahe', action='store_true', help='csrt tracker only: local contrast enhancement (CLAHE) before detection - measured to REDUCE confidence on its own in testing (likely over-amplifies glare); off by default, kept as an option for further experimentation only')
     args = parser.parse_args()
 
-    if args.sync and not args.no_display:
-        raise SystemExit('--sync only makes sense together with --no-display (offline analysis)')
+    if args.no_display and not (args.target or args.yolo_weights):
+        parser.error('headless processing requires --target or --yolo-weights; a center box is not a detection')
+    if args.target and args.yolo_weights:
+        parser.error('choose either manual --target or automatic --yolo-weights')
+    # File replay must pair depth and tracking from the same frame.
+    args.sync = args.sync or isinstance(args.camera, str)
+    if min(args.width, args.height, args.infer_size, args.yolo_imgsz) < 2:
+        parser.error('image dimensions must be at least 2')
+    if args.max_frames is not None and args.max_frames < 1:
+        parser.error('--max-frames must be positive')
+    if not (0 < args.smoothing <= 1 and 0 < args.box_smoothing <= 1 and 0 < args.max_jump_frac <= 1):
+        parser.error('smoothing and jump fractions must be in (0, 1]')
+    if not (math.isfinite(args.calib_scale) and args.calib_scale > 0 and math.isfinite(args.calib_offset)):
+        parser.error('calibration requires a positive finite scale and finite offset')
+    if args.target:
+        try:
+            parse_box(args.target, args.width, args.height)
+        except ValueError as exc:
+            parser.error(str(exc))
+    if args.tile_grid:
+        try:
+            rows, cols = map(int, args.tile_grid.lower().split('x'))
+            if min(rows, cols) < 1 or not 0 <= args.tile_overlap < 1:
+                raise ValueError
+        except ValueError:
+            parser.error('--tile-grid must be positive ROWSxCOLS and overlap must be in [0,1)')
+    if args.grace_frames < 0 or args.reacquire_frames < 1:
+        parser.error('--grace-frames must be nonnegative and --reacquire-frames must be positive')
+    if not 0 <= args.yolo_low_conf <= args.yolo_conf <= 1:
+        parser.error('require 0 <= --yolo-low-conf <= --yolo-conf <= 1')
+    if args.tracker == 'kalman' and (args.tile_grid or args.augment or args.clahe):
+        parser.error('--tile-grid, --augment and --clahe are supported only by --tracker csrt')
 
     device = get_device()
     use_fp16 = device != 'cpu' and args.fp16
     print(f'device: {device}, fp16: {use_fp16}')
 
-    processor = AutoImageProcessor.from_pretrained(args.model)
-    model = AutoModelForDepthEstimation.from_pretrained(args.model).to(device).eval()
-    if use_fp16:
-        model = model.half()
-
     cap = cv2.VideoCapture(args.camera)
     if not cap.isOpened():
+        cap.release()
         raise RuntimeError(f'Could not open source {args.camera!r}')
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # drop stale queued frames instead of falling behind (no-op for video files)
 
-    font = cv2.FONT_HERSHEY_SIMPLEX
-
-    worker = DepthWorker(processor, model, device, args.width, args.height, args.infer_size, use_fp16)
-    if not args.sync:
-        worker.start()
-
-    if args.yolo_weights:
-        from ultralytics import YOLO
-        yolo_model = YOLO(args.yolo_weights)
-        if args.tracker == 'kalman':
-            tracker = YoloKalmanTracker(yolo_model, conf_threshold=args.yolo_conf, low_conf_threshold=args.yolo_low_conf,
-                                         width=args.width, height=args.height, box_smoothing=args.box_smoothing,
-                                         max_jump_frac=args.max_jump_frac, yolo_imgsz=args.yolo_imgsz,
-                                         grace_frames=args.grace_frames, reacquire_frames=args.reacquire_frames)
-        else:
-            tile_grid = None
-            if args.tile_grid:
-                rows, cols = (int(v) for v in args.tile_grid.lower().split('x'))
-                tile_grid = (rows, cols)
-            tracker = YoloCsrtTracker(yolo_model, conf_threshold=args.yolo_conf, low_conf_threshold=args.yolo_low_conf,
-                                       width=args.width, height=args.height, box_smoothing=args.box_smoothing,
-                                       max_jump_frac=args.max_jump_frac, yolo_imgsz=args.yolo_imgsz,
-                                       grace_frames=args.grace_frames, tile_grid=tile_grid,
-                                       tile_overlap=args.tile_overlap, augment=args.augment, clahe=args.clahe)
-    elif args.target:
-        box = parse_box(args.target, args.width, args.height)
-        ret, first_frame = cap.read()
-        if not ret:
-            raise RuntimeError('Could not read a first frame from the source')
-        first_frame = cv2.resize(first_frame, (args.width, args.height))
-        x1, y1, x2, y2 = box
-        tracker = cv2.TrackerCSRT_create()
-        tracker.init(first_frame, (x1, y1, x2 - x1, y2 - y1))
-    elif args.no_display:
-        box = default_box(args.width, args.height)
-        ret, first_frame = cap.read()
-        if not ret:
-            raise RuntimeError('Could not read a first frame from the source')
-        first_frame = cv2.resize(first_frame, (args.width, args.height))
-        x1, y1, x2, y2 = box
-        tracker = cv2.TrackerCSRT_create()
-        tracker.init(first_frame, (x1, y1, x2 - x1, y2 - y1))
-    else:
-        tracker = select_target(cap, args.width, args.height)
-    smoothed_distance = None
-
-    writer = None
-    if args.output:
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        writer = cv2.VideoWriter(args.output, fourcc, 15.0, (args.width * 2, args.height))
-
-    log_file = open(args.log, 'w', newline='') if args.log else None
-    log_writer = csv.writer(log_file) if log_file else None
-    if log_writer:
-        log_writer.writerow(['frame', 'distance_raw_m', 'distance_smoothed_m', 'inference_ms'])
-
+    worker = writer = log_file = None
     frame_idx = 0
     try:
+        ret, first_native = cap.read()
+        if not ret:
+            raise RuntimeError('Source opened but decoded no frames')
+        source_fps = cap.get(cv2.CAP_PROP_FPS)
+        source_fps = source_fps if math.isfinite(source_fps) and source_fps > 0 else 15.0
+        processor = AutoImageProcessor.from_pretrained(args.model)
+        model = AutoModelForDepthEstimation.from_pretrained(args.model).to(device).eval()
+        if use_fp16:
+            model = model.half()
+        font = cv2.FONT_HERSHEY_SIMPLEX
+
+        worker = DepthWorker(processor, model, device, args.width, args.height, args.infer_size, use_fp16)
+
+        if args.yolo_weights:
+            from ultralytics import YOLO
+            yolo_model = YOLO(args.yolo_weights)
+            if args.tracker == 'kalman':
+                tracker = YoloKalmanTracker(yolo_model, conf_threshold=args.yolo_conf, low_conf_threshold=args.yolo_low_conf,
+                                             width=args.width, height=args.height, box_smoothing=args.box_smoothing,
+                                             max_jump_frac=args.max_jump_frac, yolo_imgsz=args.yolo_imgsz,
+                                             grace_frames=args.grace_frames, reacquire_frames=args.reacquire_frames)
+            else:
+                tile_grid = None
+                if args.tile_grid:
+                    rows, cols = (int(v) for v in args.tile_grid.lower().split('x'))
+                    tile_grid = (rows, cols)
+                tracker = YoloCsrtTracker(yolo_model, conf_threshold=args.yolo_conf, low_conf_threshold=args.yolo_low_conf,
+                                           width=args.width, height=args.height, box_smoothing=args.box_smoothing,
+                                           max_jump_frac=args.max_jump_frac, yolo_imgsz=args.yolo_imgsz,
+                                           grace_frames=args.grace_frames, tile_grid=tile_grid,
+                                           tile_overlap=args.tile_overlap, augment=args.augment, clahe=args.clahe,
+                                           reacquire_frames=args.reacquire_frames)
+        elif args.target:
+            box = parse_box(args.target, args.width, args.height)
+            first_frame = cv2.resize(first_native, (args.width, args.height))
+            x1, y1, x2, y2 = box
+            tracker = cv2.TrackerCSRT_create()
+            tracker.init(first_frame, (x1, y1, x2 - x1, y2 - y1))
+        elif args.no_display:
+            box = default_box(args.width, args.height)
+            first_frame = cv2.resize(first_native, (args.width, args.height))
+            x1, y1, x2, y2 = box
+            tracker = cv2.TrackerCSRT_create()
+            tracker.init(first_frame, (x1, y1, x2 - x1, y2 - y1))
+        else:
+            tracker = select_target(first_native, args.width, args.height)
+        smoothed_distance = None
+
+        writer = None
+        if args.output:
+            # avc1 (H.264), not mp4v (MPEG-4 Part 2): mp4v plays in VLC/ffmpeg but no
+            # browser will decode it, which made every --output video unplayable in
+            # control_panel.html even though the file itself was fine.
+            fourcc = cv2.VideoWriter_fourcc(*'avc1')
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            writer = cv2.VideoWriter(args.output, fourcc, source_fps, (args.width * 2, args.height))
+            if not writer.isOpened():
+                raise RuntimeError(f'Could not open H.264 output writer: {args.output}')
+
+        if args.log:
+            Path(args.log).parent.mkdir(parents=True, exist_ok=True)
+        log_file = open(args.log, 'w', newline='') if args.log else None
+        log_writer = csv.writer(log_file) if log_file else None
+        if log_writer:
+            log_writer.writerow(['frame', 'distance_raw_m', 'distance_smoothed_m', 'inference_ms', 'time_s', 'distance_model_m'])
+
+        if not args.sync:
+            worker.start()
+        metadata = dict(vars(args), fps=source_fps, calibrated=(args.calib_scale != 1 or args.calib_offset != 0),
+                        target_selection=('Automatic (YOLO + ' + args.tracker + ')' if args.yolo_weights else 'Manual CSRT'),
+                        source_video=str(args.camera), frames=0, status='running')
+        metadata_path = Path(args.output or args.log).with_suffix('.meta.json') if args.output or args.log else None
+        if metadata_path:
+            metadata_path.write_text(json.dumps(metadata, indent=2) + '\n')
         while True:
-            ret, native_frame = cap.read()
-            if not ret:
-                print('\nsource ended' if not args.no_display else 'source ended')
-                break
             if args.max_frames is not None and frame_idx >= args.max_frames:
-                print('\nreached --max-frames')
                 break
+            if frame_idx == 0:
+                native_frame = first_native
+            else:
+                ret, native_frame = cap.read()
+                if not ret:
+                    break
             raw_image = cv2.resize(native_frame, (args.width, args.height))
 
             if args.sync:
                 depth_m, depth_color, infer_ms = worker.infer(raw_image)
             else:
                 worker.submit_frame(raw_image.copy())
-                depth_m, depth_color, infer_ms = worker.depth_m, worker.depth_color, worker.infer_ms
+                depth_m, depth_color, infer_ms = worker.snapshot()
 
-            if isinstance(tracker, YoloCsrtTracker):
+            if isinstance(tracker, (YoloCsrtTracker, YoloKalmanTracker)):
                 tracked, (tx, ty, tw, th) = tracker.update(raw_image, native_frame=native_frame)
             else:
                 tracked, (tx, ty, tw, th) = tracker.update(raw_image)
 
-            distance_raw = None
+            distance_raw = distance_model = None
             if tracked:
                 box = (int(tx), int(ty), int(tx + tw), int(ty + th))
                 distance_raw = distance_in_box(depth_m, box) if depth_m is not None else None
                 if distance_raw is not None:
-                    distance_raw = args.calib_scale * distance_raw + args.calib_offset
+                    distance_model = distance_raw
+                    distance_raw = args.calib_scale * distance_model + args.calib_offset
+                    if distance_raw <= 0 or not math.isfinite(distance_raw):
+                        distance_raw = None
+                if distance_raw is not None:
                     smoothed_distance = distance_raw if smoothed_distance is None else \
                         args.smoothing * distance_raw + (1 - args.smoothing) * smoothed_distance
+
+                else:
+                    smoothed_distance = None
 
                 x1, y1, x2, y2 = box
                 cv2.rectangle(raw_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
@@ -559,6 +672,7 @@ def main():
                     cv2.putText(raw_image, label, (x1, max(20, y1 - 10)), font, 0.7, (0, 255, 0), 2)
                     print(f'frame {frame_idx}: {label}  (inference: {infer_ms:.0f} ms)', end='\r')
             else:
+                smoothed_distance = None
                 cv2.putText(raw_image, 'tracking lost - press r to reselect', (10, 30), font, 0.7, (0, 0, 255), 2)
 
             cv2.putText(raw_image, 'r: reselect target  q: quit', (10, args.height - 40), font, 0.5, (200, 200, 200), 1)
@@ -571,20 +685,27 @@ def main():
             if log_writer:
                 sm = '' if smoothed_distance is None else f'{smoothed_distance:.4f}'
                 rw = '' if distance_raw is None else f'{distance_raw:.4f}'
-                log_writer.writerow([frame_idx, rw, sm, f'{infer_ms:.1f}'])
+                log_writer.writerow([frame_idx, rw, sm, f'{infer_ms:.1f}', f'{frame_idx/source_fps:.6f}',
+                                     '' if distance_model is None else f'{distance_model:.4f}'])
 
+            frame_idx += 1
             if not args.no_display:
                 cv2.imshow('Depth Anything V2 - distance to tracked object', combined)
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord('q') or key == 27:  # 'q' or ESC
                     break
                 elif key == ord('r'):
-                    tracker = select_target(cap, args.width, args.height)
+                    tracker = select_target(raw_image, args.width, args.height)
                     smoothed_distance = None
 
-            frame_idx += 1
+        if metadata_path:
+            metadata.update(frames=frame_idx, status='complete')
+            metadata_path.write_text(json.dumps(metadata, indent=2) + '\n')
     finally:
-        worker.stop()
+        if worker is not None:
+            worker.stop()
+            if worker.is_alive():
+                worker.join(timeout=2.0)
         cap.release()
         if writer:
             writer.release()

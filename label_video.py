@@ -2,6 +2,7 @@ import argparse
 import os
 
 import cv2
+from dataset_io import recording_tag, require_mounted_destination, save_annotation
 
 # Run this yourself in your own terminal (needs an interactive window).
 #
@@ -25,7 +26,7 @@ DRIFT_CORNER_FRAC = 0.04  # CSRT's known failure mode: collapses to a degenerate
 
 
 def tag_for(video, tag_override):
-    return tag_override or os.path.splitext(os.path.basename(video))[0].replace(',', '_').replace(' ', '_')
+    return recording_tag(video, tag_override)
 
 
 def stem_for(tag, idx):
@@ -33,7 +34,24 @@ def stem_for(tag, idx):
 
 
 def decode_frames(video_path, sample_every):
+    if sample_every < 1:
+        raise ValueError('sample_every must be positive')
+    # An unreadable video must stop the run, not decode to zero frames: a dropped
+    # rclone mount turns shipcaps*_remote/ back into an empty local dir, and every
+    # path under it then "opens" as nothing. Without this check the caller saw
+    # "all 0 sampled frames are already labeled - this video is done." and a batch
+    # loop marched through the whole queue in seconds, labeling nothing.
+    if not os.path.isfile(video_path):
+        raise SystemExit(
+            f'video not found: {video_path}\n'
+            'if this lives under a shipcaps*_remote/ mount, the mount has dropped - '
+            'rerun ./remount_shipcaps.sh (or ./remount_shipcaps.sh shipcam1) and try again')
+
     cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        cap.release()
+        raise SystemExit(f'could not open video stream: {video_path}')
+
     frames = {}
     idx = 0
     while True:
@@ -44,6 +62,10 @@ def decode_frames(video_path, sample_every):
             frames[idx] = cv2.resize(frame, (WIDTH, HEIGHT))
         idx += 1
     cap.release()
+
+    if not frames:
+        raise SystemExit(f'decoded 0 frames from {video_path} - file is empty or truncated')
+
     return frames
 
 
@@ -58,6 +80,7 @@ def main():
     args = parser.parse_args()
 
     tag = tag_for(args.video, args.tag)
+    require_mounted_destination(args.out)
     for sub in ('images', 'labels'):
         os.makedirs(os.path.join(args.out, sub, args.split), exist_ok=True)
 
@@ -72,6 +95,12 @@ def main():
         print(f'\nall {len(sorted_indices)} sampled frames are already labeled - this video is done.')
         return
 
+    if args.negative:
+        for idx in pending_indices:
+            save_annotation(args.out, args.split, tag, idx, frames[idx])
+        print(f'done: {len(pending_indices)} reviewed negative frames saved')
+        return
+
     window = f'{tag} [{args.split}]'
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)
     cv2.moveWindow(window, 100, 100)
@@ -81,16 +110,6 @@ def main():
         cv2.setWindowProperty(window, cv2.WND_PROP_TOPMOST, 1)
     except cv2.error:
         pass
-
-    if args.negative:
-        print(f'\nlabeling {len(pending_indices)} frames as negative (--negative)\n')
-        for idx in pending_indices:
-            stem = stem_for(tag, idx)
-            cv2.imwrite(os.path.join(args.out, 'images', args.split, stem + '.jpg'), frames[idx])
-            open(os.path.join(args.out, 'labels', args.split, stem + '.txt'), 'w').close()
-        cv2.destroyAllWindows()
-        print(f'done: {len(pending_indices)} negative frames saved')
-        return
 
     print(f'\nreviewing {len(pending_indices)} frames - SPACE/y=accept  r=draw/redraw  n=negative  d=discard  b=back  q=quit\n')
     print('CSRT loses the target or you press b -> the window stays open and waits for you to')
@@ -103,9 +122,6 @@ def main():
         idx = pending_indices[i]
         stem = stem_for(tag, idx)
         label_path = os.path.join(args.out, 'labels', args.split, stem + '.txt')
-        if os.path.exists(label_path):
-            i += 1
-            continue
 
         frame = frames[idx].copy()
 
@@ -144,8 +160,7 @@ def main():
             i += 1
             continue
         elif key == ord('n'):
-            cv2.imwrite(os.path.join(args.out, 'images', args.split, stem + '.jpg'), frame)
-            open(label_path, 'w').close()
+            save_annotation(args.out, args.split, tag, idx, frame)
             tracker = None  # whatever was (maybe) being tracked wasn't a real boat
             n_neg += 1
             i += 1
@@ -164,12 +179,7 @@ def main():
         if box is None:
             continue  # nothing to accept yet (e.g. SPACE with no target) - stay put
 
-        x, y, w, h = box
-        cx, cy = (x + w / 2) / WIDTH, (y + h / 2) / HEIGHT
-        nw, nh = w / WIDTH, h / HEIGHT
-        cv2.imwrite(os.path.join(args.out, 'images', args.split, stem + '.jpg'), frame)
-        with open(label_path, 'w') as f:
-            f.write(f'0 {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}\n')
+        save_annotation(args.out, args.split, tag, idx, frame, box)
         n_ok += 1
         i += 1
 
@@ -185,4 +195,4 @@ if __name__ == '__main__':
         import traceback
         traceback.print_exc()
         cv2.destroyAllWindows()
-        input('\ncrashed - press ENTER to close this window (see the error above)')
+        raise SystemExit(1)

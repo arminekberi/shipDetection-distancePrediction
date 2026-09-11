@@ -6,7 +6,7 @@ import numpy as np
 def main():
     parser = argparse.ArgumentParser(
         description='Fit a linear correction (true = scale * raw + offset) from (raw, true) distance pairs, '
-                    'in meters, as printed by run.py\'s "raw" readout.'
+                    'in meters, using distance_model_m from run.py CSV output.'
     )
     parser.add_argument('pairs', nargs='+', type=float,
                          help='flat list of raw,true,raw,true,... e.g. 2.35 1.0 3.10 1.5 4.40 2.0')

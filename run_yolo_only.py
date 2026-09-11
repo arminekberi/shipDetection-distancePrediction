@@ -1,5 +1,6 @@
 import argparse
 import csv
+import math
 
 import cv2
 import numpy as np
@@ -43,63 +44,76 @@ def main():
     worker = DepthWorker(processor, depth_model, device, WIDTH, HEIGHT, args.infer_size, use_fp16=False)
 
     cap = cv2.VideoCapture(args.video)
-    writer = cv2.VideoWriter(args.output, cv2.VideoWriter_fourcc(*'mp4v'), 15.0, (WIDTH * 2, HEIGHT))
+    if not cap.isOpened():
+        raise RuntimeError(f'Could not open {args.video}')
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    fps = fps if math.isfinite(fps) and fps > 0 else 15.0
+    writer = cv2.VideoWriter(args.output, cv2.VideoWriter_fourcc(*'avc1'), fps, (WIDTH * 2, HEIGHT))
+    if not writer.isOpened():
+        cap.release()
+        writer.release()
+        raise RuntimeError(f'Could not open H.264 writer: {args.output}')
     log_f = open(args.log, 'w', newline='')
     log_writer = csv.writer(log_f)
     log_writer.writerow(['frame', 'confidence', 'distance_m'])
 
     frame_idx = 0
     n_detected = 0
-    while True:
-        ret, native_frame = cap.read()
-        if not ret:
-            break
-        frame = cv2.resize(native_frame, (WIDTH, HEIGHT))
+    try:
+        while True:
+            ret, native_frame = cap.read()
+            if not ret:
+                break
+            frame = cv2.resize(native_frame, (WIDTH, HEIGHT))
 
-        box = None
-        conf = None
-        if tile_grid is not None:
-            detect_source = apply_clahe(native_frame) if args.clahe else native_frame
-            box, conf = tiled_detect(yolo, detect_source, tile_grid, args.tile_overlap,
-                                      args.yolo_conf, args.yolo_imgsz, args.augment, (WIDTH, HEIGHT))
+            box = None
+            conf = None
+            if tile_grid is not None:
+                detect_source = apply_clahe(native_frame) if args.clahe else native_frame
+                box, conf = tiled_detect(yolo, detect_source, tile_grid, args.tile_overlap,
+                                          args.yolo_conf, args.yolo_imgsz, args.augment, (WIDTH, HEIGHT))
+                if box is not None:
+                    box = tuple(int(v) for v in box)
+            else:
+                detect_frame = apply_clahe(native_frame) if args.clahe else native_frame
+                res = yolo.predict(detect_frame, conf=args.yolo_conf, imgsz=args.yolo_imgsz, verbose=False, augment=args.augment)[0]
+                if len(res.boxes) > 0:
+                    best = max(res.boxes, key=lambda b: float(b.conf[0]))
+                    conf = float(best.conf[0])
+                    scale = (WIDTH/native_frame.shape[1], HEIGHT/native_frame.shape[0]) * 2
+                    box = tuple(int(float(v)*s) for v, s in zip(best.xyxy[0], scale))
+
+            depth_m, depth_color, infer_ms = worker.infer(frame)
+
+            distance = None
+            display = frame.copy()
             if box is not None:
-                box = tuple(int(v) for v in box)
-        else:
-            detect_frame = apply_clahe(frame) if args.clahe else frame
-            res = yolo.predict(detect_frame, conf=args.yolo_conf, imgsz=args.yolo_imgsz, verbose=False, augment=args.augment)[0]
-            if len(res.boxes) > 0:
-                best = max(res.boxes, key=lambda b: float(b.conf[0]))
-                conf = float(best.conf[0])
-                box = tuple(int(v) for v in best.xyxy[0])
+                distance = distance_in_box(depth_m, box)
+                n_detected += 1
+                x1, y1, x2, y2 = box
+                cv2.rectangle(display, (x1, y1), (x2, y2), (0, 255, 0), 1)
+                cv2.rectangle(depth_color, (x1, y1), (x2, y2), (0, 255, 0), 1)
+                dist_str = f'{distance:.2f}m' if distance is not None else '--'
+                label = f'conf {conf:.2f}  {dist_str}'
+                label_y = y1 - 8 if y1 - 20 > 0 else y2 + 18
+                (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
+                cv2.rectangle(display, (x1, label_y - th - 4), (x1 + tw + 4, label_y + 4), (0, 0, 0), -1)
+                cv2.putText(display, label, (x1 + 2, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
 
-        depth_m, depth_color, infer_ms = worker.infer(frame)
+            cv2.putText(display, f'frame {frame_idx}', (5, HEIGHT - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+            combined = np.hstack([display, depth_color])
+            writer.write(combined)
+            log_writer.writerow([frame_idx, conf if conf is not None else '', distance if distance is not None else ''])
 
-        distance = None
-        display = frame.copy()
-        if box is not None:
-            distance = distance_in_box(depth_m, box)
-            n_detected += 1
-            x1, y1, x2, y2 = box
-            cv2.rectangle(display, (x1, y1), (x2, y2), (0, 255, 0), 1)
-            cv2.rectangle(depth_color, (x1, y1), (x2, y2), (0, 255, 0), 1)
-            dist_str = f'{distance:.2f}m' if distance is not None else '--'
-            label = f'conf {conf:.2f}  {dist_str}'
-            label_y = y1 - 8 if y1 - 20 > 0 else y2 + 18
-            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
-            cv2.rectangle(display, (x1, label_y - th - 4), (x1 + tw + 4, label_y + 4), (0, 0, 0), -1)
-            cv2.putText(display, label, (x1 + 2, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
+            print(f'frame {frame_idx}: conf={conf} distance={distance}')
+            frame_idx += 1
 
-        cv2.putText(display, f'frame {frame_idx}', (5, HEIGHT - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-        combined = np.hstack([display, depth_color])
-        writer.write(combined)
-        log_writer.writerow([frame_idx, conf if conf is not None else '', distance if distance is not None else ''])
-
-        print(f'frame {frame_idx}: conf={conf} distance={distance}')
-        frame_idx += 1
-
-    cap.release()
-    writer.release()
-    log_f.close()
+    finally:
+        cap.release()
+        writer.release()
+        log_f.close()
+    if not frame_idx:
+        raise RuntimeError("Source decoded no frames")
     print(f'\ndone: {n_detected}/{frame_idx} frames detected ({100*n_detected/frame_idx:.1f}%)')
     print(f'saved video to {args.output}, log to {args.log}')
 

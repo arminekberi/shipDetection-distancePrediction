@@ -2,19 +2,16 @@ from ultralytics import YOLO
 
 
 def main():
-    model = YOLO('yolov8s.pt')
+    model = YOLO('yolo11m.pt')
     results = model.train(
         data='yolo_dataset_v4/dataset.yaml',
         epochs=80,
-        imgsz=640,
+        imgsz=960,
         device='mps',
         batch=16,
-        patience=25,
+        patience=40,
         project='runs_boat_yolo',
-        name='boat_v4s_hsvaug',
-        hsv_h=0.03,
-        hsv_s=0.9,
-        hsv_v=0.6,
+        name='boat_v6_11m',
         verbose=True,
     )
 

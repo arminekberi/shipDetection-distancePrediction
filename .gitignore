@@ -13,6 +13,10 @@ __pycache__/
 # datasets (images/labels - large, regenerable from footage + labeling scripts)
 yolo_dataset/
 yolo_dataset_v4*/
+# also matches when yolo_dataset_v4 (or a *_color/*_mono variant) is a symlink
+# (e.g. -> shipcaps_remote/_dataset, a shared folder on the rig) - a trailing-slash
+# pattern alone does not match a symlink even if it points at a directory.
+yolo_dataset_v4*
 external_runs/
 calibration_frames/
 calibration_v2/
@@ -36,3 +40,6 @@ results/
 yolov8n.pt
 yolov8s.pt
 yolo11s.pt
+yolo11m.pt
+shipcaps_remote/
+.rclone-mount.log

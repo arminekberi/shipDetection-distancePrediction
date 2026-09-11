@@ -272,13 +272,13 @@ def main():
 
         # --- 2) color vs monochrome consistency (fixed center box, no detection/tracking) ---
         box = fixed_water_roi()
-        renkli_every = sample_every_for('testGerçekRenkli.mp4', args.frames_per_video)
-        siyahbeyaz_every = sample_every_for('testGerçekSiyahBeyaz.mp4', args.frames_per_video)
-        renkli_color = track_fixed_box('testGerçekRenkli.mp4', worker, box, sample_every=renkli_every,
+        color_every = sample_every_for('testGerçekRenkli.mp4', args.frames_per_video)
+        monochrome_every = sample_every_for('testGerçekSiyahBeyaz.mp4', args.frames_per_video)
+        color_native = track_fixed_box('testGerçekRenkli.mp4', worker, box, sample_every=color_every,
                                         writer=review_writer, label='renkli (color)')
-        renkli_gray = track_fixed_box('testGerçekRenkli.mp4', worker, box, sample_every=renkli_every, to_gray=True,
+        color_as_gray = track_fixed_box('testGerçekRenkli.mp4', worker, box, sample_every=color_every, to_gray=True,
                                        writer=review_writer, label='renkli (synthetic gray)')
-        siyahbeyaz_native = track_fixed_box('testGerçekSiyahBeyaz.mp4', worker, box, sample_every=siyahbeyaz_every,
+        monochrome_native = track_fixed_box('testGerçekSiyahBeyaz.mp4', worker, box, sample_every=monochrome_every,
                                              writer=review_writer, label='siyahBeyaz (native mono)')
 
         def consistency_stats(vals, name):
@@ -292,15 +292,15 @@ def main():
             return {'n': len(vals), 'mean': st.mean(vals), 'std': std, 'mean_jitter': mean_jitter}
 
         print('  color/mono consistency (fixed water-surface ROI, same pixel box in both clips):')
-        cs_color = consistency_stats(renkli_color, 'renkli (native color)')
-        cs_synth_gray = consistency_stats(renkli_gray, 'renkli (synthetic grayscale)')
-        cs_native_gray = consistency_stats(siyahbeyaz_native, f'siyahBeyaz (native monochrome, every {siyahbeyaz_every} frames)')
+        cs_color = consistency_stats(color_native, 'renkli (native color)')
+        cs_synth_gray = consistency_stats(color_as_gray, 'renkli (synthetic grayscale)')
+        cs_native_gray = consistency_stats(monochrome_native, f'siyahBeyaz (native monochrome, every {monochrome_every} frames)')
 
         with open(os.path.join(model_dir, 'color_mono_consistency.csv'), 'w', newline='') as f:
             w = csv.writer(f)
             w.writerow(['variant', 'n', 'mean_m', 'std_m', 'mean_jitter_m'])
-            for name, cs in [('renkli_color', cs_color), ('renkli_synthetic_gray', cs_synth_gray),
-                              ('siyahbeyaz_native_mono', cs_native_gray)]:
+            for name, cs in [('color_native', cs_color), ('renkli_synthetic_gray', cs_synth_gray),
+                              ('monochrome_native_mono', cs_native_gray)]:
                 if cs:
                     w.writerow([name, cs['n'], cs['mean'], cs['std'], cs['mean_jitter']])
 
