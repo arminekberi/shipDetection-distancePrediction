@@ -1,8 +1,33 @@
-# virtual env / OS junk
+# environment files (real values stay local; .env.example is the template)
+.env
+.env.*
+!.env.example
+
+# virtual env / Python caches
 venv/
-.DS_Store
+.venv/
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# IDE / OS junk
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# logs
+*.log
 
 # raw footage / media (large, not code)
 *.mp4
@@ -22,9 +47,7 @@ calibration_frames/
 calibration_v2/
 calibrationLazerMeasurements/
 thumbnails/
-review_candidates/
-review_v3/
-review_hardmine_v1/
+review_*/
 teknedenTekneyeGörüntü/
 yeniTrain/
 zirazF3W
@@ -42,4 +65,5 @@ yolov8s.pt
 yolo11s.pt
 yolo11m.pt
 shipcaps_remote/
-.rclone-mount.log
+shipcaps1_remote/
+.rclone-mount*.log
