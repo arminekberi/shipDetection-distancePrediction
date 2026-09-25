@@ -1,198 +1,168 @@
+"""Interactive boat labeling, one continuous resumable pass over sampled frames.
+
+CSRT tracks forward from the last accepted box; without a valid box the window
+waits for a decision. Needs a desktop session.
+
+Keys: SPACE/y accept, r draw box, n no boat, d discard, b back, q/ESC quit.
+"""
 import argparse
-import os
 
 import cv2
-from dataset_io import recording_tag, require_mounted_destination, save_annotation
 
-# Run this yourself in your own terminal (needs an interactive window).
-#
-# Flow: one continuous pass over every sampled frame. CSRT auto-tracks forward from
-# whatever box you last drew/accepted; whenever it has no valid box for the current
-# frame (first frame, lost track, or drifted into the corner) the window stays open and
-# waits for you right there - draw a new box (r) or mark "no boat" (n). The window never
-# closes on its own mid-video; it only closes when you quit (q) or the video ends.
-#
-# Controls (per frame):
-#   SPACE / y   -> accept the shown (CSRT-tracked) box as-is, save, next
-#   r           -> draw/redraw a box for this frame (drag, ENTER/SPACE to confirm), save, next
-#                  (this is also how you (re)seed CSRT after it lost the target)
-#   n           -> mark this frame negative (no boat here), save empty label, next
-#   d           -> discard this frame (don't save anything), next
-#   b           -> go back one frame (re-review it; CSRT is reseeded fresh from there)
-#   q / ESC     -> quit, progress so far is already saved to disk (resumable)
+from boatdet.dataset import (SPLITS, label_path, recording_tag, require_mounted_destination,
+                             save_annotation, write_dataset_yaml)
+from boatdet.video import WORKING_SIZE, read_frames, resize_working
 
-WIDTH, HEIGHT = 640, 360
-DRIFT_CORNER_FRAC = 0.04  # CSRT's known failure mode: collapses to a degenerate box pinned near (0,0)
+DATASET = 'yolo_dataset_v4'
+DRIFT_CORNER_FRAC = 0.04  # CSRT failure mode: degenerate box pinned near (0, 0)
+YELLOW = (0, 255, 255)
 
-
-def tag_for(video, tag_override):
-    return recording_tag(video, tag_override)
-
-
-def stem_for(tag, idx):
-    return f'{tag}_{idx:05d}'
-
-
-def decode_frames(video_path, sample_every):
-    if sample_every < 1:
-        raise ValueError('sample_every must be positive')
-    # An unreadable video must stop the run, not decode to zero frames: a dropped
-    # rclone mount turns shipcaps*_remote/ back into an empty local dir, and every
-    # path under it then "opens" as nothing. Without this check the caller saw
-    # "all 0 sampled frames are already labeled - this video is done." and a batch
-    # loop marched through the whole queue in seconds, labeling nothing.
-    if not os.path.isfile(video_path):
-        raise SystemExit(
-            f'video not found: {video_path}\n'
-            'if this lives under a shipcaps*_remote/ mount, the mount has dropped - '
-            'rerun ./remount_shipcaps.sh (or ./remount_shipcaps.sh shipcam1) and try again')
-
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        cap.release()
-        raise SystemExit(f'could not open video stream: {video_path}')
-
-    frames = {}
-    idx = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        if idx % sample_every == 0:
-            frames[idx] = cv2.resize(frame, (WIDTH, HEIGHT))
-        idx += 1
-    cap.release()
-
-    if not frames:
-        raise SystemExit(f'decoded 0 frames from {video_path} - file is empty or truncated')
-
-    return frames
+# Dataset plan: (video, split, sample_every, confirmed_negative).
+# Whole recordings per split; laser calibration clips and TEST_VIDEOS excluded.
+PLAN = [
+    ('signal-2026-09-02-10-36-28-854.mp4', 'train', 1, False),
+    ('yeniTrain/20260902-150149_ShipCam0.mp4', 'train', 1, False),
+    ('yeniTrain/20260902-150707_ShipCam0.mp4', 'train', 1, False),
+    ('yeniTrain/20260902-150830_ShipCam0.mp4', 'train', 1, False),
+    ('yeniTrain/20260902-151003_ShipCam0.mp4', 'train', 1, False),
+    ('test1.mp4', 'train', 1, False),
+    ('testt.mp4', 'train', 2, False),
+    ('testtt.mp4', 'train', 1, False),
+    ('yeniTrain/20260902-150054_ShipCam0.mp4', 'train', 1, True),
+    ('teknedenTekneyeGörüntü/20260904-112014_ShipCam0.mp4', 'train', 1, False),
+    ('teknedenTekneyeGörüntü/20260904-112149_ShipCam0.mp4', 'train', 1, False),
+    ('teknedenTekneyeGörüntü/20260904-112600_ShipCam0.mp4', 'train', 1, False),
+    ('teknedenTekneyeGörüntü/20260904-112749_ShipCam0.mp4', 'train', 1, False),
+    ('teknedenTekneyeGörüntü/20260904-113010_ShipCam0.mp4', 'train', 1, False),
+    ('teknedenTekneyeGörüntü/20260904-113444_ShipCam0.mp4', 'train', 2, False),
+    ('teknedenTekneyeGörüntü/20260904-113812_ShipCam0.mp4', 'train', 1, False),
+    ('yeniTrain/20260902-150337_ShipCam0.mp4', 'val', 1, False),
+    # 20260902-151121_ShipCam0 repeats test1.mp4; never reimport it into validation.
+    ('test2.mp4', 'val', 1, False),
+    ('testGerçekRenkli.mp4', 'val', 1, False),
+    ('yeniTrain/20260902-150054_ShipCam1.mp4', 'train', 1, True),
+    ('teknedenTekneyeGörüntü/20260904-112339_ShipCam0.mp4', 'val', 1, False),
+    ('teknedenTekneyeGörüntü/20260904-112926_ShipCam0.mp4', 'val', 1, False),
+    ('teknedenTekneyeGörüntü/20260904-113234_ShipCam0.mp4', 'val', 1, False),
+    ('teknedenTekneyeGörüntü/20260904-113321_ShipCam0.mp4', 'val', 1, False),
+]
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--video', required=True)
-    parser.add_argument('--split', required=True, choices=['train', 'val', 'test'])
-    parser.add_argument('--out', default='yolo_dataset_v4')
-    parser.add_argument('--sample-every', type=int, default=1)
-    parser.add_argument('--tag', default=None)
-    parser.add_argument('--negative', action='store_true', help='video confirmed to have no boat at all - skip seeding, label every sampled frame as background')
-    args = parser.parse_args()
+def print_plan(out):
+    write_dataset_yaml(out)
+    print(f'wrote {out}/dataset.yaml\n')
+    for video, split, sample_every, negative in PLAN:
+        flag = ' --negative' if negative else ''
+        print(f'python label_video.py --video "{video}" --split {split} --out {out} --sample-every {sample_every}{flag}')
 
-    tag = tag_for(args.video, args.tag)
-    require_mounted_destination(args.out)
-    for sub in ('images', 'labels'):
-        os.makedirs(os.path.join(args.out, sub, args.split), exist_ok=True)
 
-    print(f'decoding {args.video} (every {args.sample_every} frames)...')
-    frames = decode_frames(args.video, args.sample_every)
-    sorted_indices = sorted(frames.keys())
-    print(f'{len(sorted_indices)} sampled frames')
+def tracked_box(tracker, frame):
+    """CSRT box for this frame, or None when lost or drifted into the corner."""
+    ok, box = tracker.update(frame)
+    if not ok:
+        return None
+    x, y, w, h = box
+    width, height = WORKING_SIZE
+    drifted = (x + w / 2) / width < DRIFT_CORNER_FRAC and (y + h / 2) / height < DRIFT_CORNER_FRAC
+    return None if drifted else box
 
-    pending_indices = [i for i in sorted_indices if not os.path.exists(
-        os.path.join(args.out, 'labels', args.split, stem_for(tag, i) + '.txt'))]
-    if not pending_indices:
-        print(f'\nall {len(sorted_indices)} sampled frames are already labeled - this video is done.')
-        return
 
-    if args.negative:
-        for idx in pending_indices:
-            save_annotation(args.out, args.split, tag, idx, frames[idx])
-        print(f'done: {len(pending_indices)} reviewed negative frames saved')
-        return
-
+def review(frames, pending, args, tag):
     window = f'{tag} [{args.split}]'
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)
-    cv2.moveWindow(window, 100, 100)
-    cv2.imshow(window, frames[pending_indices[0]])
-    cv2.waitKey(1)
-    try:
-        cv2.setWindowProperty(window, cv2.WND_PROP_TOPMOST, 1)
-    except cv2.error:
-        pass
-
-    print(f'\nreviewing {len(pending_indices)} frames - SPACE/y=accept  r=draw/redraw  n=negative  d=discard  b=back  q=quit\n')
-    print('CSRT loses the target or you press b -> the window stays open and waits for you to')
-    print('draw a new box (r) or mark negative (n) right there; it never closes mid-video.\n')
-
-    tracker = None  # cv2.TrackerCSRT or None (no valid box for the upcoming frame yet)
+    counts = dict(accepted=0, drawn=0, negative=0, discarded=0)
+    tracker = None
     i = 0
-    n_ok = n_fix = n_neg = n_disc = 0
-    while i < len(pending_indices):
-        idx = pending_indices[i]
-        stem = stem_for(tag, idx)
-        label_path = os.path.join(args.out, 'labels', args.split, stem + '.txt')
+    while i < len(pending):
+        idx = pending[i]
+        frame = frames[idx]
+        box = tracked_box(tracker, frame) if tracker else None
+        if box is None:
+            tracker = None
 
-        frame = frames[idx].copy()
-
-        box = None
-        if tracker is not None:
-            ok, tbox = tracker.update(frame)
-            if ok:
-                x, y, w, h = tbox
-                cx, cy = (x + w / 2) / WIDTH, (y + h / 2) / HEIGHT
-                if not (cx < DRIFT_CORNER_FRAC and cy < DRIFT_CORNER_FRAC):
-                    box = tbox
-            if box is None:
-                tracker = None  # lost or drifted - drop it, this frame needs a fresh decision
-
-        disp = frame.copy()
+        shown = frame.copy()
         if box is not None:
-            x, y, w, h = [int(v) for v in box]
-            cv2.rectangle(disp, (x, y), (x + w, y + h), (0, 255, 0), 1)
-            status = 'SPACE/y=accept  r=redraw  n=negative  d=discard  b=back  q=quit'
-        else:
-            status = 'no target - r=draw box  n=no boat here  d=skip  b=back  q=quit'
-        cv2.putText(disp, f'{tag} frame {idx}  ({i+1}/{len(pending_indices)})', (5, 15),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
-        cv2.putText(disp, status, (5, HEIGHT - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
-        cv2.imshow(window, disp)
+            x, y, w, h = (int(v) for v in box)
+            cv2.rectangle(shown, (x, y), (x + w, y + h), (0, 255, 0), 1)
+        status = 'SPACE/y=accept  r=redraw' if box is not None else 'no target - r=draw box'
+        cv2.putText(shown, f'{tag} frame {idx}  ({i + 1}/{len(pending)})', (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, YELLOW, 1)
+        cv2.putText(shown, status + '  n=no boat  d=discard  b=back  q=quit', (5, WORKING_SIZE[1] - 8),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, YELLOW, 1)
+        cv2.imshow(window, shown)
         key = cv2.waitKey(0) & 0xFF
 
         if key in (ord('q'), 27):
             break
-        elif key == ord('b'):
-            tracker = None  # reseed fresh when we come back to (or past) this frame
-            i = max(0, i - 1)
+        if key == ord('b'):
+            tracker, i = None, max(0, i - 1)  # reseed from the revisited frame
             continue
-        elif key == ord('d'):
-            n_disc += 1
+        if key == ord('d'):
+            counts['discarded'] += 1
             i += 1
             continue
-        elif key == ord('n'):
+        if key == ord('n'):
             save_annotation(args.out, args.split, tag, idx, frame)
-            tracker = None  # whatever was (maybe) being tracked wasn't a real boat
-            n_neg += 1
+            tracker = None
+            counts['negative'] += 1
             i += 1
             continue
-        elif key == ord('r'):
-            new_box = cv2.selectROI(window, frame, showCrosshair=True)
-            if new_box[2] < 2 or new_box[3] < 2:
-                continue  # cancelled, stay on this frame
-            box = new_box
+        if key == ord('r'):
+            drawn = cv2.selectROI(window, frame, showCrosshair=True)
+            if drawn[2] < 2 or drawn[3] < 2:
+                continue  # cancelled
+            box = drawn
             tracker = cv2.TrackerCSRT_create()
             tracker.init(frame, tuple(int(v) for v in box))
-            n_fix += 1
-        elif key not in (ord(' '), ord('y')):
-            continue  # unrecognized key, redraw same frame
-
-        if box is None:
-            continue  # nothing to accept yet (e.g. SPACE with no target) - stay put
-
+            counts['drawn'] += 1
+        elif key not in (ord(' '), ord('y')) or box is None:
+            continue
         save_annotation(args.out, args.split, tag, idx, frame, box)
-        n_ok += 1
+        counts['accepted'] += 1
         i += 1
-
     cv2.destroyAllWindows()
-    print(f'\nthis session: {n_ok} accepted, {n_fix} drawn/redrawn, {n_neg} negative, {n_disc} discarded')
-    print('run again on the same --video/--split to resume (already-labeled frames are skipped)')
+    return counts
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--video')
+    parser.add_argument('--split', choices=SPLITS)
+    parser.add_argument('--out', default=DATASET)
+    parser.add_argument('--sample-every', type=int, default=1)
+    parser.add_argument('--tag', help='label prefix override')
+    parser.add_argument('--negative', action='store_true',
+                        help='recording reviewed and confirmed empty: label every sampled frame as background')
+    parser.add_argument('--plan', action='store_true', help='write dataset.yaml and print commands for PLAN')
+    args = parser.parse_args()
+    if args.plan:
+        return print_plan(args.out)
+    if not (args.video and args.split):
+        parser.error('--video and --split are required')
+
+    tag = recording_tag(args.video, args.tag)
+    require_mounted_destination(args.out)
+    # Kept in RAM: back navigation needs earlier frames.
+    frames = {idx: resize_working(frame) for idx, frame in read_frames(args.video, args.sample_every)}
+    if not frames:
+        raise SystemExit(f'decoded 0 frames from {args.video}')
+    pending = [idx for idx in frames if not label_path(args.out, args.split, tag, idx).exists()]
+    print(f'{len(frames)} sampled frames, {len(pending)} unlabeled')
+    if not pending:
+        return
+
+    if args.negative:
+        for idx in pending:
+            save_annotation(args.out, args.split, tag, idx, frames[idx])
+        print(f'done: {len(pending)} reviewed negative frames saved')
+        return
+
+    counts = review(frames, pending, args, tag)
+    print('this session: ' + ', '.join(f'{v} {k}' for k, v in counts.items()))
+    print('rerun the same --video/--split to resume')
 
 
 if __name__ == '__main__':
     try:
         main()
-    except Exception:
-        import traceback
-        traceback.print_exc()
-        cv2.destroyAllWindows()
-        raise SystemExit(1)
+    except (OSError, ValueError) as exc:  # dropped mount, unreadable video, bad tag
+        raise SystemExit(f'{type(exc).__name__}: {exc}')

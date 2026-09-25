@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Проверка разметки · Ship Detection</title>
+<meta name="description" content="Локальная проверка размеченных кадров кораблей: сравнение версий, редактирование рамок и сохранение решений.">
+<link rel="stylesheet" href="/dataset_review.css">
+<script src="/dataset_review.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+ <div><a class="backlink" href="/control_panel.html">← Просмотрщик</a><h1>Проверка разметки</h1></div>
+ <div class="progress-block"><span id="progressText">Загрузка набора…</span><progress id="progress" max="5016" value="0" aria-label="Проверено кадров"></progress></div>
+ <button id="export" disabled>Скачать решения ↓</button>
+</header>
+<div id="notice" role="status" aria-live="polite" hidden></div>
+<main class="workspace">
+ <aside class="sidebar">
+  <h2>Очередь проверки</h2>
+  <nav id="queues" aria-label="Проблемы разметки"></nav>
+  <p id="scanStatus" class="hint" hidden></p>
+  <label for="statusFilter">Показывать</label>
+  <select id="statusFilter"><option value="pending">Непроверенные</option><option value="all">Все решения</option><option value="approved">Подтверждённые</option><option value="deferred">Отложенные</option><option value="excluded">Исключённые</option></select>
+  <label for="search">Кадр или запись</label><input id="search" type="search" placeholder="Например, 20260909">
+  <div class="list-heading"><span id="listCount">—</span><span>train / val</span></div>
+  <div id="frameList" class="frame-list" aria-label="Кадры"></div>
+  <button id="more" class="subtle" hidden>Показать ещё 100</button>
+ </aside>
+ <section class="review-area" aria-label="Редактор разметки">
+  <div class="frame-heading"><div><span id="splitBadge" class="badge">—</span><h2 id="frameName">Загрузка…</h2><p id="framePosition" class="muted"></p></div><div class="navigation"><button id="previous" aria-label="Предыдущий кадр">←</button><button id="next" aria-label="Следующий кадр">→</button></div></div>
+  <div id="flags" class="flags"></div>
+  <div class="toolbar">
+   <div class="toolgroup"><button id="selectTool" aria-pressed="true">Выбрать</button><button id="drawTool" aria-pressed="false">＋ Рамка <kbd>D</kbd></button><button id="deleteBox" disabled>Удалить</button><button id="undo" disabled>Отменить</button></div>
+   <div class="toolgroup"><button id="zoomOut" aria-label="Уменьшить">−</button><span id="zoomLabel">100%</span><button id="zoomIn" aria-label="Увеличить">＋</button><button id="reload" title="Заново загрузить сохранённое решение">Обновить</button></div>
+  </div>
+  <div id="viewport" class="viewport">
+   <div id="stage" class="stage" hidden><img id="frameImage" alt="Кадр для проверки разметки" draggable="false"><svg id="overlay" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-label="Рамки кораблей"></svg></div>
+   <p id="emptyState">Загружаю кадры…</p>
+  </div>
+  <div class="under-image"><span><i class="legend source"></i>С рига <i class="legend local"></i>Локальная версия <i class="legend draft"></i>Ваше решение</span><label class="check"><input id="showReferences" type="checkbox" checked> Сравнение рамок</label></div>
+  <label class="check"><input id="showYolo" type="checkbox" checked> Жёлтые рамки YOLO и уверенность</label>
+  <p id="yoloSummary" class="hint" hidden></p>
+  <p class="hint">Обведите каждый видимый корабль. Рамку можно двигать и менять за углы. Берег, вода и небо остаются фоном.</p>
+  <section id="peerSection" hidden><h3>Такое же имя в другой части набора</h3><p class="muted">Совпадение имени не означает одинаковое изображение. Сравните сцены и уточните запись, если знаете её.</p><div id="peers" class="peers"></div></section>
+ </section>
+ <aside class="decision-panel">
+  <h2>Решение по кадру</h2><p id="savedState" class="muted">Ничего не выбрано</p>
+  <h3>Взять разметку</h3><div id="versions" class="versions"></div>
+  <button id="background" class="wide">Корабля нет <kbd>N</kbd></button>
+  <p id="boxCount" class="muted">—</p>
+  <label for="recording">Запись, если известна</label><input id="recording" placeholder="Дата, время или имя видео" maxlength="200">
+  <label for="note">Комментарий</label><textarea id="note" rows="3" maxlength="2000" placeholder="Например: корабль частично за кадром"></textarea>
+  <button id="save" class="primary wide" disabled>Подтвердить и дальше <kbd>Enter</kbd></button>
+  <div class="secondary-actions"><button id="defer" disabled>Отложить</button><button id="exclude" disabled>Исключить</button></div>
+  <p class="hint">Исключайте кадр, только если он непригоден для обучения. Кадр без корабля — полезный фон.</p>
+  <details><summary>История решений</summary><div id="history" class="history"></div></details>
+  <div class="storage-note">Решения сохраняются на этом компьютере. Исходные изображения и метки остаются без изменений. Проверка кадра не меняет его train/val/test.</div>
+ </aside>
+</main>
+<dialog id="leaveDialog"><h2>Есть несохранённые изменения</h2><p>Сохраните решение или отмените изменения перед переходом.</p><div class="dialog-actions"><button id="stay">Остаться</button><button id="discard" class="danger">Отменить изменения</button></div></dialog>
+</body></html>

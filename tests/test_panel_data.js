@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
-const {parseCSV, coverage, indexAtTime, escapeHTML} = require('../panel_data.js');
+const {parseCSV, coverage, indexAtTime, escapeHTML} = require('../viewer/panel_data.js');
 const rows = parseCSV('inference_ms,frame,distance_smoothed_m,distance_raw_m,time_s\n10,0,3,3,0\n10,1,3,,0.2\n10,2,NaN,Infinity,0.6\n');
 assert.equal(rows.length, 3);
 assert.equal(rows[2].raw, null);
