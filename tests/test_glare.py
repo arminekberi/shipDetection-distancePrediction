@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 from analyze_glare import analyze, highlight_metrics, normalized_roi
-from generate_yolo_labels import check_training_sources
+from boatdet.dataset import check_training_sources
 
 
 class GlareTests(unittest.TestCase):

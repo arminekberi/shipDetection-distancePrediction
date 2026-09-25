@@ -1,0 +1,33 @@
+{
+  "format": "two-rig-supervision-v1",
+  "world_frame": "shared_local_xyz_z_up",
+  "world_frame_id": "REPLACE_WITH_SHARED_SURVEY_ORIGIN_AND_AXES_VERSION",
+  "synthetic": false,
+  "max_state_gap_s": 0.5,
+  "sessions": [
+    {
+      "id": "run01-cameraA",
+      "group": "run01-both-rigs",
+      "capture_id": "run01-cameraA-recording",
+      "split": "train",
+      "camera_id": "rigA-camera1-lens-and-mount-v1",
+      "observations": "../data/run01/tracks.csv",
+      "bearing_source": "pixels_with_state_attitude",
+      "camera_calibration": "camera_actual.json",
+      "working_size": [640, 360],
+      "observer": {
+        "rig_id": "rigA",
+        "path": "../data/run01/rigA_state.csv",
+        "clock": {"offset_s": 0.0, "scale": 1.0},
+        "reference_lever_frd_m": [0.0, 0.0, 0.0]
+      },
+      "target": {
+        "rig_id": "rigB",
+        "path": "../data/run01/rigB_state.csv",
+        "clock": {"offset_s": 0.0, "scale": 1.0},
+        "reference_lever_frd_m": [0.0, 0.0, 0.0]
+      },
+      "associations": [{"track_id": 1, "start_s": 0.0, "end_s": 60.0}]
+    }
+  ]
+}

@@ -6,7 +6,6 @@ Never modifies labels. Invalid labels are excluded from every comparison arm.
 import argparse
 import hashlib
 import json
-import math
 from pathlib import Path
 import time
 
@@ -16,22 +15,13 @@ import torch
 import ultralytics
 from ultralytics import YOLO
 
+from boatdet.dataset import parse_box_line
+from boatdet.detection import apply_clahe
+from boatdet.video import read_frames, resize_working
+
 
 def read_boxes(path):
-    boxes = []
-    for line in path.read_text().splitlines():
-        if not line.strip():
-            continue
-        values = list(map(float, line.split()))
-        if len(values) != 5:
-            raise ValueError('Expected five fields')
-        cls, x, y, w, h = values
-        if not (all(math.isfinite(v) for v in values) and cls == 0 and w > 0 and h > 0
-                and x-w/2 >= -1e-5 and y-h/2 >= -1e-5
-                and x+w/2 <= 1+1e-5 and y+h/2 <= 1+1e-5):
-            raise ValueError('Invalid boat box')
-        boxes.append([x-w/2, y-h/2, x+w/2, y+h/2])
-    return boxes
+    return [parse_box_line(line) for line in path.read_text().splitlines() if line.strip()]
 
 
 def iou(a, b):
@@ -67,20 +57,13 @@ def summarize(rows, threshold):
 
 
 def paired_frames(video, selected):
-    """Decode one frame at a time to keep long evaluations bounded in memory."""
-    cap = cv2.VideoCapture(video)
-    index = 0
-    try:
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            if index in selected:
-                yield index, frame, selected[index]
-            index += 1
-    finally:
-        cap.release()
-    if selected and index <= max(selected):
+    """Decode incrementally to keep long evaluations bounded in memory."""
+    last = -1
+    for index, frame in read_frames(video):
+        last = index
+        if index in selected:
+            yield index, frame, selected[index]
+    if selected and last < max(selected):
         raise ValueError('Video ended before all selected frames were decoded')
 
 
@@ -92,8 +75,8 @@ def main():
     parser.add_argument('--prefix', required=True)
     parser.add_argument('--weights', nargs='+', required=True)
     parser.add_argument('--out', type=Path, required=True)
-    parser.add_argument('--modes', nargs='+', choices=['resized_color', 'native_color', 'native_gray'],
-                        default=['resized_color', 'native_color', 'native_gray'])
+    parser.add_argument('--modes', nargs='+', choices=['resized_color', 'native_color', 'native_color_clahe'],
+                        default=['resized_color', 'native_color'])
     parser.add_argument('--imgsz', type=int, default=960)
     parser.add_argument('--threads', type=int, default=4)
     args = parser.parse_args()
@@ -102,44 +85,33 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     frames, excluded, alignment = {}, [], []
     labels_digest = hashlib.sha256()
-    cap = cv2.VideoCapture(args.video)
-    if not cap.isOpened():
-        raise ValueError('Cannot open video')
-    index = 0
-    try:
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            stem = f'{args.prefix}_{index:05d}'
-            label = args.labels / f'{stem}.txt'
-            if label.exists():
-                labels_digest.update(label.name.encode()+b'\0'+label.read_bytes()+b'\0')
-                saved = cv2.imread(str(args.images / f'{stem}.jpg'))
-                if saved is None:
-                    raise ValueError(f'Missing alignment image: {stem}')
-                small = cv2.resize(frame, (640, 360))
-                if saved.shape != small.shape:
-                    raise ValueError(f'Unexpected annotation image shape: {stem}')
-                mae = float(np.abs(small.astype(np.float32)-saved.astype(np.float32)).mean())
-                if mae > 5:
-                    raise ValueError(f'Frame alignment check failed: {stem}, MAE={mae}')
-                alignment.append(mae)
-                try:
-                    truth = read_boxes(label)
-                except ValueError as exc:
-                    excluded.append(dict(frame=index, label=label.name, reason=str(exc)))
-                else:
-                    frames[index] = truth
-            index += 1
-    finally:
-        cap.release()
+    for index, frame in read_frames(args.video):
+        stem = f'{args.prefix}_{index:05d}'
+        label = args.labels / f'{stem}.txt'
+        if not label.exists():
+            continue
+        labels_digest.update(label.name.encode() + b'\0' + label.read_bytes() + b'\0')
+        saved = cv2.imread(str(args.images / f'{stem}.jpg'))
+        if saved is None:
+            raise ValueError(f'Missing alignment image: {stem}')
+        small = resize_working(frame)
+        if saved.shape != small.shape:
+            raise ValueError(f'Unexpected annotation image shape: {stem}')
+        mae = float(np.abs(small.astype(np.float32) - saved.astype(np.float32)).mean())
+        if mae > 5:
+            raise ValueError(f'Frame alignment check failed: {stem}, MAE={mae}')
+        alignment.append(mae)
+        try:
+            frames[index] = read_boxes(label)
+        except ValueError as exc:
+            excluded.append(dict(frame=index, label=label.name, reason=str(exc)))
     if not frames:
         raise ValueError('No valid paired frames')
     report = dict(video=args.video, video_sha256=hashlib.sha256(Path(args.video).read_bytes()).hexdigest(),
                   labels_sha256=labels_digest.hexdigest(), frames=len(frames), positive_frames=sum(bool(t) for t in frames.values()), excluded=excluded,
                   alignment_mae_median=float(np.median(alignment)), alignment_mae_max=max(alignment),
                   settings=dict(imgsz=args.imgsz, nms_iou=.7, device='cpu', fp16=False, threads=args.threads,
+                                clahe=dict(clip_limit=2.5, tile_grid=8, channel='LAB L'),
                                 ultralytics=ultralytics.__version__, torch=torch.__version__), results=[],
                   limitations='Existing validation annotations, not an independent reviewed test set. '
                   'One recording; neighboring frames are correlated. No retraining. '
@@ -151,9 +123,9 @@ def main():
         for mode in args.modes:
             rows = []
             for number, (index, frame, truth) in enumerate(paired_frames(args.video, frames)):
-                source = cv2.resize(frame, (640, 360)) if mode == 'resized_color' else frame
-                if mode == 'native_gray':
-                    source = cv2.cvtColor(cv2.cvtColor(source, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
+                source = resize_working(frame) if mode == 'resized_color' else frame
+                if mode == 'native_color_clahe':
+                    source = apply_clahe(source)
                 if number == 0:
                     model.predict(source, imgsz=args.imgsz, conf=.15, iou=.7, device='cpu', verbose=False)
                 start = time.perf_counter()

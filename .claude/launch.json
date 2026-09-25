@@ -4,7 +4,7 @@
     {
       "name": "control-panel",
       "runtimeExecutable": "venv/bin/python",
-      "runtimeArgs": ["panel_server.py"],
+      "runtimeArgs": ["viewer/server.py"],
       "port": 8001
     }
   ]
